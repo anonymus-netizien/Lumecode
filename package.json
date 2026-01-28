@@ -1,0 +1,65 @@
+{
+  "name": "lumecode",
+  "version": "0.1.0",
+  "description": "AI-powered coding that's private, open, and beautiful in your terminal",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lumecode": "./dist/cli/index.js",
+    "lc": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "dev": "bun run src/cli/index.ts",
+    "build": "bun build src/cli/index.ts --outdir dist --target node",
+    "test": "bun test",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "chalk": "^5.4.1",
+    "cli-highlight": "^2.1.11",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "ink": "^5.1.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "marked": "^17.0.1",
+    "openai": "^4.77.0",
+    "ora": "^8.1.1",
+    "pino": "^9.6.0",
+    "react": "^18.3.1",
+    "tree-sitter": "^0.22.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/bun": "^1.1.14",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/uuid": "^10.0.0",
+    "react-devtools-core": "^7.0.1",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "keywords": [
+    "ai",
+    "coding",
+    "agent",
+    "terminal",
+    "tui",
+    "llm",
+    "gemini",
+    "openrouter",
+    "groq"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}
