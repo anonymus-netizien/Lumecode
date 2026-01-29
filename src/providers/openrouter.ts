@@ -17,15 +17,12 @@ import { ProviderError } from '../types/index.js';
 
 // Free models available on OpenRouter
 export const OPENROUTER_FREE_MODELS = [
-  'google/gemini-2.0-flash-exp:free',
-  'google/gemini-exp-1206:free',
+  'google/gemini-2.0-flash:free',
   'meta-llama/llama-3.2-3b-instruct:free',
-  'meta-llama/llama-3.2-1b-instruct:free',
-  'meta-llama/llama-3.1-8b-instruct:free',
-  'qwen/qwen-2-7b-instruct:free',
-  'microsoft/phi-3-mini-128k-instruct:free',
+  'meta-llama/llama-3.1-405b-instruct:free',
+  'nousresearch/hermes-3-llama-3.1-405b:free',
+  'qwen/qwen-2.5-vl-7b-instruct:free',
   'mistralai/mistral-7b-instruct:free',
-  'huggingfaceh4/zephyr-7b-beta:free',
 ];
 
 export class OpenRouterProvider extends BaseProvider {
@@ -140,13 +137,13 @@ export class OpenRouterProvider extends BaseProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      // Check API key validity with a minimal request
-      const response = await this.client.chat.completions.create({
-        model: this.config.model,
-        messages: [{ role: 'user', content: 'Hi' }],
-        max_tokens: 5,
+      // Use lightweight models endpoint check instead of chat completion
+      const response = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
       });
-      return !!response.choices[0];
+      return response.ok;
     } catch {
       return false;
     }

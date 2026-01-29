@@ -32,6 +32,64 @@ Lumecode is an open-source AI coding agent that combines the best of modern term
 
 ### Installation
 
+You can run Lumecode directly with `bunx` (recommended) or install it globally.
+
+#### Option 1: Run with bunx (No install required)
+
+```bash
+# Initialize a new project
+bunx lumecode init
+
+# Start chat in current directory
+bunx lumecode
+```
+
+#### Option 2: Global Installation
+
+```bash
+# Clone and link locally
+git clone https://github.com/yourusername/lumecode.git
+cd lumecode
+bun install
+bun run build
+bun link
+
+# Now you can use 'lumecode' or 'lc' anywhere
+lumecode init
+lumecode chat
+```
+
+### Auto-Completion
+
+Lumecode supports shell auto-completion for Zsh and Bash.
+
+```bash
+# Zsh (add to ~/.zshrc)
+source <(lumecode completion)
+
+# Bash (add to ~/.bashrc)
+source <(lumecode completion)
+```
+
+### Project Initialization
+
+Use the `init` command to set up a new project environment:
+
+```bash
+lumecode init
+```
+
+This will:
+1. Validate system requirements
+2. Set up configuration
+3. Configure API keys
+4. Install dependencies
+5. Build the project
+
+### Manual Setup
+
+If you prefer manual setup:
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/lumecode.git
@@ -175,6 +233,7 @@ Settings are stored in `~/.lumecode/config.json`. API keys are NOT stored in the
 | `Ctrl+N` | New session |
 | `Ctrl+L` | Clear screen |
 | `Ctrl+P` | Switch provider |
+| `Ctrl+M` | Switch model |
 | `?` | Toggle help |
 | `Esc` | Close panels |
 

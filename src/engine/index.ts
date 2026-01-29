@@ -5,10 +5,11 @@
 
 import { providerRegistry, type BaseProvider } from '../providers/index.js';
 import { agentRegistry, type BaseAgent, createAgent } from '../agents/index.js';
-import { sessionManager } from '../session/index';
-import { fileSystem } from '../filesystem/index';
+import { sessionManager } from '../session/index.js';
+import { fileSystem } from '../filesystem/index.js';
 import { contextBuilder } from '../context/index.js';
 import { configManager } from '../config/index.js';
+import { toolRegistry, initializeTools } from '../tools/index.js';
 import type {
   EngineConfig,
   EngineRequest,
@@ -18,6 +19,8 @@ import type {
   Session,
   AgentRole,
   ProviderName,
+  ToolCall,
+  ToolResult,
 } from '../types/index.js';
 
 // ===========================================
@@ -29,6 +32,7 @@ class Engine {
   private currentSession: Session | null = null;
   private agent: BaseAgent | null = null;
   private provider: BaseProvider | null = null;
+  private toolCallHandler: ((toolName: string, args: Record<string, unknown>, result: ToolResult) => void) | null = null;
 
   /**
    * Initialize the engine
@@ -40,6 +44,9 @@ class Engine {
     sessionId?: string;
   } = {}): Promise<void> {
     if (this.initialized) return;
+
+    // Initialize tools system
+    initializeTools();
 
     // Initialize providers
     await providerRegistry.initialize();
@@ -261,9 +268,6 @@ class Engine {
     // Clear agent history
     agent.clearHistory();
 
-    if (!this.currentSession) {
-      throw new Error('Failed to create session');
-    }
     return this.currentSession;
   }
 
@@ -325,14 +329,41 @@ class Engine {
   }
 
   /**
-   * Get available providers
+   * Get available providers with models and status
    */
   getProviders(): Array<{
     name: ProviderName;
     model: string;
+    models: string[];
     isActive: boolean;
   }> {
-    return providerRegistry.getProviderInfo();
+    return providerRegistry.getProviderInfoWithModels();
+  }
+
+  /**
+   * Get available models for a provider
+   */
+  async getModelsForProvider(name: ProviderName): Promise<string[]> {
+    return providerRegistry.getModelsForProvider(name);
+  }
+
+  /**
+   * Switch to a different model within the current provider
+   */
+  switchModel(model: string): void {
+    if (!this.provider) return;
+    this.provider.setModel(model);
+    
+    if (this.currentSession) {
+      sessionManager.update(this.currentSession.id, { model });
+    }
+  }
+
+  /**
+   * Check provider connectivity and get error if any
+   */
+  async checkProviderStatus(name: ProviderName): Promise<{ available: boolean; error?: string }> {
+    return providerRegistry.checkProviderStatus(name);
   }
 
   /**
@@ -344,6 +375,82 @@ class Engine {
     isActive: boolean;
   }> {
     return agentRegistry.getInfo();
+  }
+
+  /**
+   * Execute a tool by name
+   */
+  async executeTool(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<ToolResult> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const workingDir = this.currentSession?.workingDirectory || process.cwd();
+    
+    // Set tool context
+    toolRegistry.setContext({
+      workingDirectory: workingDir,
+      sessionId: this.currentSession?.id,
+    });
+
+    const result = await toolRegistry.execute(toolName, args);
+
+    // Notify handler if set
+    if (this.toolCallHandler) {
+      this.toolCallHandler(toolName, args, result);
+    }
+
+    // Log to session metadata
+    if (this.currentSession && result.success) {
+      const metadata = this.currentSession.metadata || {};
+      if (toolName === 'file_write' || toolName === 'file_edit') {
+        metadata.filesModified = metadata.filesModified || [];
+        if (args.path && !metadata.filesModified.includes(args.path as string)) {
+          metadata.filesModified.push(args.path as string);
+        }
+      }
+      if (toolName === 'terminal_execute') {
+        metadata.commandsExecuted = metadata.commandsExecuted || [];
+        metadata.commandsExecuted.push(args.command as string);
+      }
+      sessionManager.update(this.currentSession.id, { metadata });
+    }
+
+    return result;
+  }
+
+  /**
+   * Set a handler to be notified of tool executions
+   */
+  setToolCallHandler(
+    handler: (toolName: string, args: Record<string, unknown>, result: ToolResult) => void
+  ): void {
+    this.toolCallHandler = handler;
+  }
+
+  /**
+   * Get available tools for the current agent
+   */
+  getAvailableTools(): Array<{
+    name: string;
+    description: string;
+    category: string;
+  }> {
+    return toolRegistry.getDefinitions().map(def => ({
+      name: def.name,
+      description: def.description,
+      category: def.category,
+    }));
+  }
+
+  /**
+   * Get tool execution history
+   */
+  getToolHistory(limit?: number) {
+    return toolRegistry.getHistory(limit);
   }
 
   /**

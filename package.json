@@ -5,12 +5,12 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "lumecode": "./dist/cli/index.js",
-    "lc": "./dist/cli/index.js"
+    "lumecode": "./dist/index.js",
+    "lc": "./dist/index.js"
   },
   "scripts": {
     "dev": "bun run src/cli/index.ts",
-    "build": "bun build src/cli/index.ts --outdir dist --target node",
+    "build": "bun build src/cli/index.ts --outdir dist --target bun",
     "test": "bun test",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "chalk": "^5.4.1",
     "cli-highlight": "^2.1.11",
     "commander": "^12.1.0",
@@ -30,7 +31,11 @@
     "ora": "^8.1.1",
     "pino": "^9.6.0",
     "react": "^18.3.1",
+    "simple-git": "^3.30.0",
     "tree-sitter": "^0.22.4",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver-protocol": "^3.17.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

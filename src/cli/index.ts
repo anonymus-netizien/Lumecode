@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 /**
  * Lumecode CLI
  * Main entry point for the command-line interface
@@ -8,10 +10,10 @@ import chalk from 'chalk';
 import { config } from 'dotenv';
 import { engine } from '../engine/index.js';
 import { configManager } from '../config/index.js';
-import { sessionManager } from '../session/index';
+import { sessionManager } from '../session/index.js';
 import { providerRegistry } from '../providers/index.js';
 import { startTUI } from '../ui/index.js';
-import type { AgentRole, ProviderName, SessionSummary } from '../types/index.js';
+import type { AgentRole, ProviderName } from '../types/index.js';
 
 // Load environment variables
 config();
@@ -115,7 +117,7 @@ sessionCmd
     
     // Find session by partial ID
     const sessions = sessionManager.list(100);
-    const session = sessions.find((s: SessionSummary) => s.id.startsWith(id));
+    const session = sessions.find((s) => s.id.startsWith(id));
     
     if (!session) {
       console.log(chalk.red('Session not found.'));
@@ -148,7 +150,7 @@ sessionCmd
     sessionManager.initialize();
     
     const sessions = sessionManager.list(100);
-    const session = sessions.find((s: SessionSummary) => s.id.startsWith(id));
+    const session = sessions.find((s) => s.id.startsWith(id));
     
     if (!session) {
       console.log(chalk.red('Session not found.'));
@@ -243,6 +245,83 @@ program
     console.log(chalk.bold(`\nLumecode v${VERSION}`));
     console.log(chalk.dim('AI-powered coding that\'s private, open, and beautiful'));
     console.log(chalk.dim('https://github.com/lumecode\n'));
+  });
+
+// ===========================================
+// Completion Command
+// ===========================================
+
+program
+  .command('completion')
+  .description('Generate shell completion script')
+  .action(() => {
+    const commands = program.commands.map(cmd => cmd.name()).join(' ');
+    const script = `
+###-begin-lumecode-completion-###
+#
+# Lumecode completion script
+#
+# Installation: 
+#   lumecode completion >> ~/.zshrc  (or ~/.bashrc)
+#   source ~/.zshrc
+#
+
+if type compdef &>/dev/null; then
+  _lumecode() {
+    local -a commands
+    commands=(
+      ${program.commands.map(c => `'${c.name()}:${c.description().replace(/'/g, "'\\''")}'`).join('\n      ')}
+    )
+    _describe 'command' commands
+  }
+  compdef _lumecode lumecode
+  compdef _lumecode lc
+elif type complete &>/dev/null; then
+  _lumecode_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="\${COMP_WORDS[COMP_CWORD]}"
+    prev="\${COMP_WORDS[COMP_CWORD-1]}"
+    opts="${commands}"
+
+    if [[ \${cur} == -* ]] ; then
+      COMPREPLY=( $(compgen -W "\${opts}" -- \${cur}) )
+      return 0
+    fi
+    
+    case "\${prev}" in
+      lumecode|lc)
+        COMPREPLY=( $(compgen -W "\${opts}" -- \${cur}) )
+        return 0
+        ;;
+      *)
+        ;;
+    esac
+  }
+  complete -F _lumecode_completion lumecode
+  complete -F _lumecode_completion lc
+fi
+###-end-lumecode-completion-###
+`;
+    console.log(script.trim());
+  });
+
+// ===========================================
+// Init Command
+// ===========================================
+
+program
+  .command('init')
+  .description('Initialize Lumecode project environment')
+  .option('-y, --yes', 'Skip prompts, use defaults')
+  .option('-v, --verbose', 'Verbose output')
+  .option('--skip-install', 'Skip dependency installation')
+  .option('--skip-build', 'Skip build step')
+  .option('-f, --force', 'Force reinitialize')
+  .option('--production', 'Production environment')
+  .action(async (options) => {
+    const { runInit } = await import('./init.js');
+    await runInit(options);
   });
 
 // ===========================================

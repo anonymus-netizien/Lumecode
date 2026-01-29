@@ -225,11 +225,26 @@ export interface DiffHunk {
 // Tool/Function Calling Types
 // ===========================================
 
+export type ToolCategory = 
+  | 'file'
+  | 'file_read'
+  | 'file_write'
+  | 'file_edit'
+  | 'directory'
+  | 'terminal'
+  | 'search'
+  | 'git'
+  | 'code'
+  | 'web'
+  | 'mcp'
+  | 'general';
+
 export interface Tool {
   name: string;
   description: string;
   parameters: ToolParameters;
   execute: (args: Record<string, unknown>) => Promise<ToolResult>;
+  category?: ToolCategory;
 }
 
 export interface ToolParameters {
@@ -240,10 +255,12 @@ export interface ToolParameters {
 
 export interface ToolProperty {
   type: 'string' | 'number' | 'boolean' | 'array' | 'object';
-  description: string;
+  description?: string;
   enum?: string[];
   items?: ToolProperty;
   default?: unknown;
+  properties?: Record<string, ToolProperty>;
+  required?: string[];
 }
 
 export interface ToolResult {

@@ -713,6 +713,7 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ visible, onClose }) => {
     { key: 'Ctrl+C', desc: 'Exit Lumecode' },
     { key: 'Tab', desc: 'Switch agent' },
     { key: 'Ctrl+P', desc: 'Switch provider' },
+    { key: 'Ctrl+O', desc: 'Switch model' },
     { key: 'Ctrl+N', desc: 'New session' },
     { key: 'Ctrl+L', desc: 'Clear conversation' },
     { key: 'Ctrl+T', desc: 'Toggle cost details' },
@@ -726,7 +727,17 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ visible, onClose }) => {
     { cmd: '/clear', desc: 'Clear history' },
     { cmd: '/agent <type>', desc: 'Switch agent' },
     { cmd: '/provider <name>', desc: 'Switch provider' },
+    { cmd: '/model [name]', desc: 'Switch model' },
+    { cmd: '/models', desc: 'List models' },
     { cmd: '/status', desc: 'Show status' },
+  ];
+
+  const toolCommands = [
+    { cmd: '/tools', desc: 'List available tools' },
+    { cmd: '/ls [path]', desc: 'List directory' },
+    { cmd: '/cat <file>', desc: 'Read file' },
+    { cmd: '/search <pattern>', desc: 'Search in files' },
+    { cmd: '/run <cmd>', desc: 'Execute command' },
   ];
 
   return (
@@ -755,11 +766,22 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ visible, onClose }) => {
         </Box>
         
         {/* Commands Column */}
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginRight={4}>
           <Text color={theme.primaryBright} bold underline>Commands</Text>
           {commands.map((c) => (
             <Box key={c.cmd}>
               <Text color={theme.warning}>{c.cmd.padEnd(18)}</Text>
+              <Text color={theme.muted}>{c.desc}</Text>
+            </Box>
+          ))}
+        </Box>
+
+        {/* Tool Commands Column */}
+        <Box flexDirection="column">
+          <Text color={theme.primaryBright} bold underline>Tools</Text>
+          {toolCommands.map((c) => (
+            <Box key={c.cmd}>
+              <Text color={theme.success}>{c.cmd.padEnd(18)}</Text>
               <Text color={theme.muted}>{c.desc}</Text>
             </Box>
           ))}
@@ -855,7 +877,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
 
 interface ProviderSelectorProps {
   currentProvider: ProviderName;
-  providers: Array<{ name: ProviderName; model: string; available: boolean }>;
+  providers: Array<{ name: ProviderName; model: string; models: string[]; available: boolean; error?: string }>;
   onSelect: (provider: ProviderName) => void;
   visible: boolean;
 }
@@ -877,9 +899,7 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
       setSelectedIndex((i) => (i < providers.length - 1 ? i + 1 : 0));
     } else if (key.return) {
       const provider = providers[selectedIndex];
-      if (provider.available) {
-        onSelect(provider.name);
-      }
+      onSelect(provider.name);
     }
   });
 
@@ -903,19 +923,120 @@ export const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           const isCurrent = provider.name === currentProvider;
           
           return (
-            <Box key={provider.name}>
-              <Text
-                color={!provider.available ? theme.muted : isSelected ? theme.secondaryBright : theme.text}
-                backgroundColor={isSelected ? 'magenta' : undefined}
-              >
-                {isSelected ? '▸ ' : '  '}
-                {provider.available ? '🟢' : '🔴'} {provider.name.padEnd(12)}
-                <Text color={theme.muted}>({provider.model})</Text>
-                {isCurrent && <Text color={theme.success}> ✓</Text>}
-              </Text>
+            <Box key={provider.name} flexDirection="column">
+              <Box>
+                <Text
+                  color={!provider.available ? theme.muted : isSelected ? theme.secondaryBright : theme.text}
+                  backgroundColor={isSelected ? 'magenta' : undefined}
+                >
+                  {isSelected ? '▸ ' : '  '}
+                  {provider.available ? '🟢' : '🔴'} {provider.name.padEnd(12)}
+                  <Text color={theme.muted}>({provider.model})</Text>
+                  {isCurrent && <Text color={theme.success}> ✓</Text>}
+                </Text>
+              </Box>
+              {!provider.available && provider.error && (
+                <Box marginLeft={4}>
+                  <Text color={theme.error} dimColor>
+                    └─ {provider.error}
+                  </Text>
+                </Box>
+              )}
             </Box>
           );
         })}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={theme.muted} dimColor>
+           Press Ctrl+O to change model • Enter to switch provider
+        </Text>
+      </Box>
+    </Box>
+  );
+};
+
+// ===========================================
+// Model Selector Component
+// ===========================================
+
+interface ModelSelectorProps {
+  currentModel: string;
+  models: string[];
+  provider: ProviderName;
+  onSelect: (model: string) => void;
+  visible: boolean;
+}
+
+export const ModelSelector: React.FC<ModelSelectorProps> = ({
+  currentModel,
+  models,
+  provider,
+  onSelect,
+  visible,
+}) => {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Reset selection when models change
+  useEffect(() => {
+    const currentIndex = models.indexOf(currentModel);
+    setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [models, currentModel]);
+
+  useInput((input, key) => {
+    if (!visible) return;
+
+    if (key.upArrow || input === 'k') {
+      setSelectedIndex((i) => (i > 0 ? i - 1 : models.length - 1));
+    } else if (key.downArrow || input === 'j') {
+      setSelectedIndex((i) => (i < models.length - 1 ? i + 1 : 0));
+    } else if (key.return) {
+      if (models.length > 0) {
+        onSelect(models[selectedIndex]);
+      }
+    }
+  });
+
+  if (!visible) return null;
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.accentBright}
+      paddingX={2}
+      paddingY={1}
+      marginY={1}
+    >
+      <Text color={theme.accentBright} bold>
+        Select Model for {provider} (↑↓ to navigate, Enter to select)
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        {models.length === 0 ? (
+          <Text color={theme.muted}>No models available for this provider</Text>
+        ) : (
+          models.map((model, i) => {
+            const isSelected = i === selectedIndex;
+            const isCurrent = model === currentModel;
+            
+            return (
+              <Box key={model}>
+                <Text
+                  color={isSelected ? theme.accentBright : theme.text}
+                  backgroundColor={isSelected ? 'blue' : undefined}
+                >
+                  {isSelected ? '▸ ' : '  '}
+                  {model}
+                  {isCurrent && <Text color={theme.success}> (current)</Text>}
+                </Text>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={theme.muted} dimColor>
+          Esc to close • Enter to select model
+        </Text>
       </Box>
     </Box>
   );

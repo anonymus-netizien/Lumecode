@@ -17,6 +17,7 @@ import type {
 import { AGENT_CAPABILITIES } from '../types/index.js';
 import { providerRegistry, type BaseProvider } from '../providers/index.js';
 import { AGENT_PROMPTS, AGENT_DESCRIPTIONS } from './prompts.js';
+import { toolRegistry, type ToolExecutionResult } from '../tools/index.js';
 
 export abstract class BaseAgent {
   protected config: AgentConfig;
@@ -24,6 +25,8 @@ export abstract class BaseAgent {
   protected provider: BaseProvider;
   protected tools: Map<string, Tool> = new Map();
   protected conversationHistory: LLMMessage[] = [];
+  protected confirmationHandler: ((action: string) => Promise<boolean>) | null = null;
+  protected toolCallHandler: ((toolName: string, args: Record<string, unknown>) => void) | null = null;
 
   constructor(role: AgentRole, provider?: BaseProvider) {
     this.config = {
@@ -56,6 +59,87 @@ export abstract class BaseAgent {
    * Handle a tool call result
    */
   abstract handleToolCall(call: ToolCall): Promise<ToolResult>;
+
+  // ===========================================
+  // Tool Call Handler
+  // ===========================================
+
+  /**
+   * Set a handler to be notified of tool calls
+   */
+  setToolCallHandler(handler: (toolName: string, args: Record<string, unknown>) => void): void {
+    this.toolCallHandler = handler;
+  }
+
+  /**
+   * Set a confirmation handler for dangerous operations
+   */
+  setConfirmationHandler(handler: (action: string) => Promise<boolean>): void {
+    this.confirmationHandler = handler;
+  }
+
+  /**
+   * Execute a tool using the central tool registry
+   */
+  protected async executeRegistryTool(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<ToolExecutionResult> {
+    // Notify handler if set
+    if (this.toolCallHandler) {
+      this.toolCallHandler(toolName, args);
+    }
+
+    // Check if tool requires confirmation
+    const tool = toolRegistry.get(toolName);
+    if (tool?.requiresConfirmation && this.capabilities.requiresConfirmation) {
+      const confirmed = await this.requestConfirmation(
+        `Execute ${toolName}: ${JSON.stringify(args).slice(0, 100)}...`
+      );
+      if (!confirmed) {
+        return {
+          success: false,
+          error: 'Operation cancelled by user',
+          executionTime: 0,
+          toolName,
+          args,
+          timestamp: new Date(),
+        };
+      }
+    }
+
+    // Execute via registry
+    return toolRegistry.execute(toolName, args, {
+      workingDirectory: this.context?.workingDirectory || process.cwd(),
+    });
+  }
+
+  /**
+   * Get tool definitions for LLM function calling
+   */
+  getToolDefinitionsForLLM(): Array<{
+    type: 'function';
+    function: {
+      name: string;
+      description: string;
+      parameters: import('../types/index.js').ToolParameters;
+    };
+  }> {
+    // Filter tools based on agent capabilities
+    const allTools = toolRegistry.getAll();
+    const allowedTools = allTools.filter(tool => {
+      // Check capability restrictions
+      if (tool.category === 'file_write' || tool.category === 'file_edit') {
+        return this.capabilities.canWriteFiles;
+      }
+      if (tool.category === 'terminal') {
+        return this.capabilities.canExecuteCommands;
+      }
+      return true;
+    });
+
+    return allowedTools.map(tool => tool.toFunctionDefinition());
+  }
 
   // ===========================================
   // Common Methods

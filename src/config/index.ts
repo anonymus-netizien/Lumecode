@@ -76,10 +76,21 @@ class ConfigManager {
   }
 
   private initialize(): void {
+    // Override with environment variables first
+    this.loadFromEnv();
+
     // Ensure data directory exists
     if (!existsSync(this.config.dataDir)) {
-      mkdirSync(this.config.dataDir, { recursive: true });
+      try {
+        mkdirSync(this.config.dataDir, { recursive: true });
+      } catch (error) {
+        // Ignore error during initialization, will be handled when accessing specific paths
+        // or when running 'init' command
+      }
     }
+
+    // Update config path based on potentially new dataDir
+    this.configPath = join(this.config.dataDir, 'config.json');
 
     // Load from file if exists
     if (existsSync(this.configPath)) {
@@ -90,9 +101,6 @@ class ConfigManager {
         console.warn('Failed to load config file, using defaults');
       }
     }
-
-    // Override with environment variables
-    this.loadFromEnv();
 
     // Initialize provider configs
     this.initializeProviders();

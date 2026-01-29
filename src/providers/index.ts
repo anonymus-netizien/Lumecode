@@ -170,6 +170,90 @@ class ProviderRegistry {
       isActive: provider === this.activeProvider,
     }));
   }
+
+  /**
+   * Get provider info with available models
+   */
+  getProviderInfoWithModels(): Array<{
+    name: ProviderName;
+    model: string;
+    models: string[];
+    isActive: boolean;
+  }> {
+    return Array.from(this.providers.entries()).map(([name, provider]) => ({
+      name,
+      model: provider.getModel(),
+      models: this.getModelsForProviderSync(name),
+      isActive: provider === this.activeProvider,
+    }));
+  }
+
+  /**
+   * Get models for a provider (sync version)
+   */
+  private getModelsForProviderSync(name: ProviderName): string[] {
+    switch (name) {
+      case 'gemini':
+        return ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+      case 'groq':
+        return GROQ_MODELS;
+      case 'openrouter':
+        return OPENROUTER_FREE_MODELS; // Already an array of strings
+      case 'ollama':
+        return OLLAMA_MODELS;
+      default:
+        return [];
+    }
+  }
+
+  /**
+   * Get available models for a provider
+   */
+  async getModelsForProvider(name: ProviderName): Promise<string[]> {
+    const provider = this.providers.get(name);
+    if (provider) {
+      try {
+        return await provider.listModels();
+      } catch {
+        return this.getModelsForProviderSync(name);
+      }
+    }
+    return this.getModelsForProviderSync(name);
+  }
+
+  /**
+   * Check provider status and return error if not available
+   */
+  async checkProviderStatus(name: ProviderName): Promise<{ available: boolean; error?: string }> {
+    const provider = this.providers.get(name);
+    if (!provider) {
+      return { available: false, error: `Provider ${name} not configured` };
+    }
+    
+    try {
+      const available = await provider.isAvailable();
+      if (!available) {
+        return { available: false, error: `${name} is not responding` };
+      }
+      return { available: true };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      // Parse common error types
+      if (error.includes('API key') || error.includes('apiKey')) {
+        return { available: false, error: `Invalid or missing API key for ${name}` };
+      }
+      if (error.includes('quota') || error.includes('429')) {
+        return { available: false, error: `${name} rate limit/quota exceeded` };
+      }
+      if (error.includes('ECONNREFUSED') || error.includes('ENOTFOUND') || error.includes('network')) {
+        return { available: false, error: `Cannot connect to ${name} - check network` };
+      }
+      if (error.includes('404') || error.includes('not found')) {
+        return { available: false, error: `${name} model not found` };
+      }
+      return { available: false, error: `${name}: ${error.slice(0, 100)}` };
+    }
+  }
 }
 
 // ===========================================
@@ -181,6 +265,7 @@ export const providerRegistry = new ProviderRegistry();
 // Re-export providers and types
 export { BaseProvider } from './base.js';
 export { GeminiProvider } from './gemini.js';
+export { GeminiProviderWithTools } from './gemini-with-tools.js';
 export { OpenRouterProvider, OPENROUTER_FREE_MODELS } from './openrouter.js';
 export { GroqProvider, GROQ_MODELS } from './groq.js';
 export { OllamaProvider, OLLAMA_MODELS } from './ollama.js';

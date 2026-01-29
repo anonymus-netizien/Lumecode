@@ -5,8 +5,9 @@
 
 import { BaseAgent } from './base.js';
 import { BuildAgent } from './build.js';
-import type { AgentRole, DirectoryTree } from '../types/index.js';
+import type { AgentRole } from '../types/index.js';
 import { type BaseProvider } from '../providers/index.js';
+import { toolRegistry } from '../tools/index.js';
 
 // ===========================================
 // Plan Agent (Read-only with confirmation)
@@ -18,62 +19,18 @@ export class PlanAgent extends BaseAgent {
   }
 
   protected initializeTools(): void {
-    // Read file tool
-    this.registerTool({
-      name: 'read_file',
-      description: 'Read the contents of a file',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to read' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const content = await fileSystem.readFile(args.path as string);
-        return { success: true, output: content };
-      },
-    });
+    // Plan agent uses registry tools with read-only access
+    // Tools are filtered by capabilities in getToolDefinitionsForLLM
+  }
 
-    // List directory tool
-    this.registerTool({
-      name: 'list_directory',
-      description: 'List contents of a directory',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the directory' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const entries = await fileSystem.listDirectory(args.path as string);
-        return {
-          success: true,
-          output: entries.map((e: { name: string; type: 'file' | 'directory' }) => `${e.type === 'directory' ? '📁' : '📄'} ${e.name}`).join('\n'),
-        };
-      },
-    });
-
-    // Search files tool
-    this.registerTool({
-      name: 'search_files',
-      description: 'Search for files matching a pattern',
-      parameters: {
-        type: 'object',
-        properties: {
-          pattern: { type: 'string', description: 'Glob pattern to match files' },
-          directory: { type: 'string', description: 'Directory to search in' },
-        },
-        required: ['pattern'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const files = await fileSystem.searchFiles(args.pattern as string, args.directory as string);
-        return { success: true, output: files.join('\n') };
-      },
+  /**
+   * Get tools available to Plan agent (read-only)
+   */
+  override getToolDefinitionsForLLM() {
+    // Plan agent can only read - filter out write/execute tools
+    return toolRegistry.getFunctionDefinitions().filter(tool => {
+      const name = tool.function.name;
+      return name === 'file_read' || name === 'directory_list' || name === 'search_files';
     });
   }
 
@@ -86,9 +43,12 @@ export class PlanAgent extends BaseAgent {
   }
 
   async handleToolCall(call: import('../types/index.js').ToolCall): Promise<import('../types/index.js').ToolResult> {
-    const tool = this.tools.get(call.name);
-    if (!tool) return { success: false, error: `Unknown tool: ${call.name}` };
-    return tool.execute(call.arguments);
+    // Verify tool is allowed for Plan agent
+    const allowedTools = ['file_read', 'directory_list', 'search_files'];
+    if (!allowedTools.includes(call.name)) {
+      return { success: false, error: `Plan agent cannot use tool: ${call.name}` };
+    }
+    return this.executeRegistryTool(call.name, call.arguments);
   }
 }
 
@@ -102,43 +62,17 @@ export class ReviewAgent extends BaseAgent {
   }
 
   protected initializeTools(): void {
-    // Read file tool only
-    this.registerTool({
-      name: 'read_file',
-      description: 'Read the contents of a file for review',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to read' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const content = await fileSystem.readFile(args.path as string);
-        return { success: true, output: content };
-      },
-    });
+    // Review agent uses registry tools with read-only access
+  }
 
-    // List directory tool
-    this.registerTool({
-      name: 'list_directory',
-      description: 'List contents of a directory',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the directory' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const entries = await fileSystem.listDirectory(args.path as string);
-        return {
-          success: true,
-          output: entries.map((e: { name: string; type: 'file' | 'directory' }) => `${e.type === 'directory' ? '📁' : '📄'} ${e.name}`).join('\n'),
-        };
-      },
+  /**
+   * Get tools available to Review agent (read-only)
+   */
+  override getToolDefinitionsForLLM() {
+    // Review agent can only read files
+    return toolRegistry.getFunctionDefinitions().filter(tool => {
+      const name = tool.function.name;
+      return name === 'file_read' || name === 'directory_list';
     });
   }
 
@@ -151,9 +85,11 @@ export class ReviewAgent extends BaseAgent {
   }
 
   async handleToolCall(call: import('../types/index.js').ToolCall): Promise<import('../types/index.js').ToolResult> {
-    const tool = this.tools.get(call.name);
-    if (!tool) return { success: false, error: `Unknown tool: ${call.name}` };
-    return tool.execute(call.arguments);
+    const allowedTools = ['file_read', 'directory_list'];
+    if (!allowedTools.includes(call.name)) {
+      return { success: false, error: `Review agent cannot use tool: ${call.name}` };
+    }
+    return this.executeRegistryTool(call.name, call.arguments);
   }
 }
 
@@ -167,92 +103,15 @@ export class GeneralAgent extends BaseAgent {
   }
 
   protected initializeTools(): void {
-    // All tools from BuildAgent but with confirmation
-    this.registerTool({
-      name: 'read_file',
-      description: 'Read the contents of a file',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to read' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const content = await fileSystem.readFile(args.path as string);
-        return { success: true, output: content };
-      },
-    });
+    // General agent uses all registry tools but requires confirmation
+  }
 
-    this.registerTool({
-      name: 'write_file',
-      description: 'Write content to a file (requires confirmation)',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the file to write' },
-          content: { type: 'string', description: 'Content to write' },
-        },
-        required: ['path', 'content'],
-      },
-      execute: async (args) => {
-        const confirmed = await this.requestConfirmation(`Write to ${args.path}?`);
-        if (!confirmed) return { success: false, error: 'Operation cancelled by user' };
-        
-        const { fileSystem } = await import('../filesystem/index');
-        await fileSystem.writeFile(args.path as string, args.content as string);
-        return { success: true, output: `File written: ${args.path}` };
-      },
-    });
-
-    this.registerTool({
-      name: 'run_command',
-      description: 'Execute a shell command (requires confirmation)',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Command to execute' },
-          cwd: { type: 'string', description: 'Working directory' },
-        },
-        required: ['command'],
-      },
-      execute: async (args) => {
-        const confirmed = await this.requestConfirmation(`Run: ${args.command}?`);
-        if (!confirmed) return { success: false, error: 'Operation cancelled by user' };
-        
-        const { fileSystem } = await import('../filesystem/index');
-        const result = await fileSystem.executeCommand(
-          args.command as string,
-          (args.cwd as string) || this.context?.workingDirectory || process.cwd()
-        );
-        return {
-          success: result.exitCode === 0,
-          output: result.stdout,
-          error: result.stderr || undefined,
-        };
-      },
-    });
-
-    this.registerTool({
-      name: 'list_directory',
-      description: 'List contents of a directory',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Path to the directory' },
-        },
-        required: ['path'],
-      },
-      execute: async (args) => {
-        const { fileSystem } = await import('../filesystem/index');
-        const entries = await fileSystem.listDirectory(args.path as string);
-        return {
-          success: true,
-          output: entries.map((e: { name: string; type: 'file' | 'directory' }) => `${e.type === 'directory' ? '📁' : '📄'} ${e.name}`).join('\n'),
-        };
-      },
-    });
+  /**
+   * Get tools available to General agent (all tools)
+   */
+  override getToolDefinitionsForLLM() {
+    // General agent has access to all tools
+    return toolRegistry.getFunctionDefinitions();
   }
 
   async process(message: string): Promise<import('../types/index.js').LLMResponse> {
@@ -264,9 +123,17 @@ export class GeneralAgent extends BaseAgent {
   }
 
   async handleToolCall(call: import('../types/index.js').ToolCall): Promise<import('../types/index.js').ToolResult> {
-    const tool = this.tools.get(call.name);
-    if (!tool) return { success: false, error: `Unknown tool: ${call.name}` };
-    return tool.execute(call.arguments);
+    // General agent requires confirmation for write operations
+    const writeTools = ['file_write', 'file_edit', 'terminal_execute'];
+    if (writeTools.includes(call.name)) {
+      const confirmed = await this.requestConfirmation(
+        `Execute ${call.name}: ${JSON.stringify(call.arguments).slice(0, 100)}...`
+      );
+      if (!confirmed) {
+        return { success: false, error: 'Operation cancelled by user' };
+      }
+    }
+    return this.executeRegistryTool(call.name, call.arguments);
   }
 }
 
