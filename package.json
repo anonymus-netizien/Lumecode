@@ -23,6 +23,7 @@
     "cli-highlight": "^2.1.11",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",
+    "hono": "^4.6.0",
     "ink": "^5.1.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",

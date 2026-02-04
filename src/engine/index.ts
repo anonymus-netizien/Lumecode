@@ -75,12 +75,9 @@ class Engine {
       const session = sessionManager.get(options.sessionId);
       if (session) {
         this.currentSession = session;
-        // Restore conversation history to agent
-        for (const msg of session.messages) {
-          if (msg.role !== 'system') {
-            this.agent.getHistory().push(msg);
-          }
-        }
+        this.agent.restoreHistory(
+          session.messages.filter((m) => m.role !== 'system')
+        );
       }
     }
 
@@ -168,7 +165,7 @@ class Engine {
     sessionManager.addMessage(session.id, userMessage);
 
     // Get streaming response
-    const messages = agent['buildMessages'](request.message);
+    const messages = agent.prepareMessagesForRequest(request.message);
     const response = await this.provider!.chatStream(messages, (chunk) => {
       if (!chunk.done && chunk.content) {
         onChunk(chunk.content);
@@ -176,11 +173,11 @@ class Engine {
     });
 
     // Add to agent history
-    agent['addToHistory']({
+    agent.addMessageToHistory({
       role: 'user',
       content: request.message,
     });
-    agent['addToHistory']({
+    agent.addMessageToHistory({
       role: 'assistant',
       content: response.content,
     });
@@ -284,13 +281,9 @@ class Engine {
     await this.switchAgent(session.agent);
     await this.switchProvider(session.provider);
 
-    // Restore conversation history
-    this.agent!.clearHistory();
-    for (const msg of session.messages) {
-      if (msg.role !== 'system') {
-        this.agent!.getHistory().push(msg);
-      }
-    }
+    this.agent!.restoreHistory(
+      session.messages.filter((m) => m.role !== 'system')
+    );
 
     // Update working directory
     fileSystem.setWorkingDirectory(session.workingDirectory);

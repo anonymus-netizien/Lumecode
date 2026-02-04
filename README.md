@@ -105,13 +105,16 @@ cp .env.example .env
 
 ### API Keys
 
-Get your free API keys:
+Lumecode uses **free-tier providers only**; no paid API keys are required. Add the keys you want to use to `.env`.
 
-| Provider | Get Key | Free Tier |
-|----------|---------|-----------|
-| **Gemini** | [Google AI Studio](https://aistudio.google.com/apikey) | 60 RPM, 1M tokens/min |
-| **OpenRouter** | [OpenRouter](https://openrouter.ai/keys) | Free models available |
-| **Groq** | [Groq Console](https://console.groq.com/keys) | 30 RPM, 15K tokens/min |
+| Provider | Env variable | Get key (free) | Free tier |
+|----------|--------------|----------------|-----------|
+| **Gemini** | `GOOGLE_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | 60 RPM, 1M tokens/min |
+| **OpenRouter** | `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai/keys) | Free models (e.g. `google/gemini-2.0-flash-exp:free`) |
+| **Groq** | `GROQ_API_KEY` | [Groq Console](https://console.groq.com/keys) | 30 RPM, 15K tokens/min |
+| **Ollama** | (none) | Run [Ollama](https://ollama.ai) locally | Always free, local |
+
+**Provider setup:** Set at least one of `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY` in `.env`. If a provider does not appear in `lumecode config --show` or `lumecode providers`, the corresponding env variable is missing—add it and restart the app.
 
 ### Usage
 

@@ -14,77 +14,7 @@ import { existsSync } from 'fs';
 import type { ToolResult, ToolParameters } from '../types/index.js';
 import type { TerminalExecuteArgs, TerminalResult } from './types.js';
 import { BaseTool } from './registry.js';
-
-// ===========================================
-// Command Security Configuration
-// ===========================================
-
-/**
- * Commands that are always blocked (critical system damage potential)
- */
-const BLOCKED_COMMANDS = [
-  /\brm\s+-rf\s+\/(?!\w)/i,           // rm -rf / (root)
-  /\brm\s+-rf\s+~\/?$/i,               // rm -rf ~ (home)
-  /\bmkfs\b/i,                          // Format filesystem
-  /\bdd\s+.*of=\/dev\/[sh]d[a-z]/i,    // dd to disk devices
-  /:(){ :|:& };:/,                      // Fork bomb
-  /\b>\s*\/dev\/sd[a-z]/i,             // Redirect to disk
-  /\bchmod\s+-R\s+777\s+\//i,          // chmod 777 / 
-  /\bkill\s+-9\s+-1\b/i,               // Kill all processes
-  /\bshutdown\b/i,                      // System shutdown
-  /\breboot\b/i,                        // System reboot
-  /\binit\s+0\b/i,                      // Halt system
-  /\brm\s+.*\/\*\s*$/i,                // rm /*
-  /\bwget\b.*\|\s*sh/i,                // wget | sh
-  /\bcurl\b.*\|\s*sh/i,                // curl | sh
-  /\beval\s+\$\(/i,                    // eval $(...) - dangerous eval
-];
-
-/**
- * Commands that require explicit confirmation
- */
-const DANGEROUS_PATTERNS = [
-  /\brm\s+-rf?\b/i,                    // rm with force
-  /\bsudo\b/i,                          // Superuser
-  /\bchmod\b/i,                         // Permission changes
-  /\bchown\b/i,                         // Ownership changes
-  /\bkill\b/i,                          // Kill processes
-  /\bpkill\b/i,                         // Kill by pattern
-  /\bnpm\s+install\s+-g/i,             // Global npm install
-  /\bpip\s+install\b/i,                 // pip install (can be risky)
-  /\bgit\s+push\s+.*--force/i,         // Force push
-  /\bgit\s+reset\s+--hard/i,           // Hard reset
-  /\bdocker\s+rm\s+-f/i,               // Force remove containers
-  /\bdocker\s+system\s+prune/i,        // Docker prune
-  />\s*\|/,                             // Redirect/pipe chain
-  /&&.*&&.*&&/,                         // Long command chains
-];
-
-/**
- * Safe commands that don't need confirmation
- */
-const SAFE_COMMANDS = [
-  /^ls\b/i,
-  /^pwd\b/i,
-  /^echo\b/i,
-  /^cat\b/i,
-  /^head\b/i,
-  /^tail\b/i,
-  /^grep\b/i,
-  /^find\b/i,
-  /^which\b/i,
-  /^whoami\b/i,
-  /^date\b/i,
-  /^wc\b/i,
-  /^diff\b/i,
-  /^git\s+(status|log|branch|diff|show)\b/i,
-  /^npm\s+(list|ls|outdated|audit)\b/i,
-  /^node\s+--version/i,
-  /^bun\s+(--version|run\s+build|run\s+test)\b/i,
-  /^tsc\b/i,
-  /^prettier\b/i,
-  /^eslint\b/i,
-];
+import { filterCommand } from '../security/command-filter.js';
 
 // ===========================================
 // Process Manager
@@ -234,50 +164,36 @@ export interface CommandAnalysis {
 }
 
 export function analyzeCommand(command: string): CommandAnalysis {
-  // Check blocked commands
-  for (const pattern of BLOCKED_COMMANDS) {
-    if (pattern.test(command)) {
-      return {
-        isBlocked: true,
-        isDangerous: true,
-        isSafe: false,
-        requiresConfirmation: true,
-        reason: `Command blocked for security: matches pattern ${pattern}`,
-      };
-    }
+  const filterResult = filterCommand(command);
+
+  if (!filterResult.allowed) {
+    return {
+      isBlocked: true,
+      isDangerous: true,
+      isSafe: false,
+      requiresConfirmation: true,
+      reason:
+        filterResult.reasons.length > 0
+          ? filterResult.reasons.join('; ')
+          : 'Command blocked by security policy',
+    };
   }
 
-  // Check safe commands
-  for (const pattern of SAFE_COMMANDS) {
-    if (pattern.test(command)) {
-      return {
-        isBlocked: false,
-        isDangerous: false,
-        isSafe: true,
-        requiresConfirmation: false,
-      };
-    }
-  }
+  const riskLevel = filterResult.riskLevel;
+  const isSafe = riskLevel === 'low';
+  const isDangerous = riskLevel === 'high' || riskLevel === 'critical';
+  const requiresConfirmation = riskLevel === 'medium' || isDangerous;
 
-  // Check dangerous commands
-  for (const pattern of DANGEROUS_PATTERNS) {
-    if (pattern.test(command)) {
-      return {
-        isBlocked: false,
-        isDangerous: true,
-        isSafe: false,
-        requiresConfirmation: true,
-        reason: `Potentially dangerous command: matches pattern ${pattern}`,
-      };
-    }
-  }
-
-  // Default: moderate risk, may need confirmation
   return {
     isBlocked: false,
-    isDangerous: false,
-    isSafe: false,
-    requiresConfirmation: false,
+    isDangerous,
+    isSafe,
+    requiresConfirmation,
+    reason: isDangerous
+      ? filterResult.reasons.length > 0
+        ? filterResult.reasons.join('; ')
+        : 'Potentially dangerous command'
+      : undefined,
   };
 }
 

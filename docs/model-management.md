@@ -4,6 +4,16 @@
 
 This module provides comprehensive model management and user tier detection capabilities for Lumecode. It enables querying AI model providers, classifying users by tier, labeling free models, managing chat sessions, monitoring model health, and exposes REST API endpoints.
 
+## Provider setup (free APIs only)
+
+Lumecode is designed to run on **free API providers only**; no paid keys are required. To make a cloud provider available:
+
+1. **Set the env variable** in `.env` (see [README](../README.md#api-keys) for the table).
+2. **Get a free key** from the provider’s site (Google AI Studio, OpenRouter, Groq Console).
+3. **Restart the app** so config is re-read.
+
+If a provider does not appear in `lumecode config --show` or `lumecode providers`, the corresponding env variable is missing. Use `lumecode providers --check` to see availability and any error (e.g. invalid key, rate limit).
+
 ## Architecture
 
 ```

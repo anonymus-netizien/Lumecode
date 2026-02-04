@@ -117,7 +117,3 @@ export function getOpenAIToolDefinitions() {
 export function getGeminiToolDefinitions() {
   return enhancedToolRegistry.getGeminiFunctions();
 }
-
-// Auto-initialize on import
-initializeTools();
-initializeEnhancedTools();

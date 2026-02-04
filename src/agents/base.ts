@@ -202,7 +202,25 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Add a message to history
+   * Restore conversation history (e.g. when loading a session).
+   * Replaces internal history with the given messages and normalizes timestamps.
+   */
+  restoreHistory(messages: LLMMessage[]): void {
+    this.conversationHistory = messages.map((msg) => ({
+      ...msg,
+      timestamp: msg.timestamp || new Date(),
+    }));
+  }
+
+  /**
+   * Add a message to history (public API for engine/orchestration).
+   */
+  addMessageToHistory(message: LLMMessage): void {
+    this.addToHistory(message);
+  }
+
+  /**
+   * Add a message to history (internal; subclasses may override).
    */
   protected addToHistory(message: LLMMessage): void {
     this.conversationHistory.push({
@@ -212,7 +230,14 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Build messages array for LLM request
+   * Build messages array for LLM request (public API for engine/orchestration).
+   */
+  prepareMessagesForRequest(userMessage: string): LLMMessage[] {
+    return this.buildMessages(userMessage);
+  }
+
+  /**
+   * Build messages array for LLM request (internal; subclasses may override).
    */
   protected buildMessages(userMessage: string): LLMMessage[] {
     const messages: LLMMessage[] = [];

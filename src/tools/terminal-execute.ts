@@ -8,20 +8,7 @@ import { resolve } from 'path';
 import type { ToolResult, ToolParameters } from '../types/index.js';
 import type { TerminalExecuteArgs, TerminalResult } from './types.js';
 import { BaseTool } from './registry.js';
-
-// Dangerous commands that require extra confirmation
-const DANGEROUS_PATTERNS = [
-  /\brm\s+-rf?\s/i,
-  /\bsudo\b/i,
-  /\bmkfs\b/i,
-  /\bdd\s+if=/i,
-  /\bformat\b/i,
-  /\b>\s*\/dev\//i,
-  /\bchmod\s+-R\s+777/i,
-  /\brm\s+.*\*/i,
-  /\bkill\s+-9\s+-1/i,
-  /:(){ :|:& };:/,  // Fork bomb
-];
+import { filterCommand } from '../security/command-filter.js';
 
 // Maximum output size (500KB)
 const MAX_OUTPUT_SIZE = 500 * 1024;
@@ -78,13 +65,20 @@ export class TerminalExecuteTool extends BaseTool {
       };
     }
 
-    // Check for dangerous commands
-    const isDangerous = DANGEROUS_PATTERNS.some(pattern => pattern.test(command));
-    if (isDangerous) {
+    const filterResult = filterCommand(command);
+    if (!filterResult.allowed) {
+      const reasons = filterResult.reasons.length
+        ? filterResult.reasons.join('; ')
+        : 'Command blocked by security policy';
       return {
         success: false,
-        error: `⚠️ Potentially dangerous command detected. This command requires explicit user confirmation: "${command}"`,
-        data: { dangerous: true, command },
+        error: `⚠️ Command blocked: ${reasons}. "${command}"`,
+        data: {
+          dangerous: true,
+          command,
+          riskLevel: filterResult.riskLevel,
+          reasons: filterResult.reasons,
+        },
       };
     }
 

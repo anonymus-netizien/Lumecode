@@ -1,7 +1,10 @@
 /**
  * Permission System
- * Manages permissions for tools, files, and operations
+ * Manages fine-grained permissions for agents, tools, and operations
  */
+
+import { Minimatch } from 'minimatch';
+import type { AgentRole } from '../types/index.js';
 
 // ===========================================
 // Types
@@ -26,6 +29,38 @@ export type Permission =
   | 'system:write'
   | 'mcp:connect'
   | 'mcp:tool';
+
+// New permission ruleset types (Phase 1)
+export type PathPattern = string;
+
+export interface PathMatcher {
+  allow: PathPattern[];
+  deny?: PathPattern[];
+}
+
+export interface CommandWhitelist {
+  allow: string[];
+  deny?: string[];
+}
+
+export interface PermissionRuleset {
+  files: {
+    read: PathMatcher;
+    write: PathMatcher;
+    delete: PathMatcher;
+  };
+  commands: CommandWhitelist;
+  network: {
+    allowed: boolean;
+    allowedDomains?: string[];
+  };
+  requiresConfirmation: boolean;
+}
+
+export interface AccessCheckResult {
+  allowed: boolean;
+  reason?: string;
+}
 
 export interface PermissionRequest {
   /** The permission being requested */
@@ -481,3 +516,247 @@ export function grantPermission(grant: PermissionGrant): void {
 export function revokePermission(permission: Permission, resourcePattern: string): boolean {
   return getPermissionManager().revoke(permission, resourcePattern);
 }
+
+// ===========================================
+// Agent-Based Permission Rulesets (Phase 1)
+// ===========================================
+
+export const DEFAULT_PERMISSIONS: Record<AgentRole, PermissionRuleset> = {
+  build: {
+    files: {
+      read: { allow: ['**'] },
+      write: { allow: ['**'], deny: ['.git/**', '.env*', '.env/**'] },
+      delete: { allow: ['**'], deny: ['.git/**', '.env*', '.env/**', 'node_modules/**'] },
+    },
+    commands: {
+      allow: ['*'],
+      deny: ['rm -rf /**', 'sudo *', 'pkill *', 'killall *'],
+    },
+    network: { allowed: true },
+    requiresConfirmation: false,
+  },
+
+  plan: {
+    files: {
+      read: { allow: ['**'] },
+      write: { allow: [] },
+      delete: { allow: [] },
+    },
+    commands: {
+      allow: ['npm test', 'npm run build', 'bun test', 'git status', 'git log'],
+      deny: [],
+    },
+    network: { allowed: true },
+    requiresConfirmation: true,
+  },
+
+  review: {
+    files: {
+      read: { allow: ['**'] },
+      write: { allow: [] },
+      delete: { allow: [] },
+    },
+    commands: {
+      allow: [],
+      deny: ['*'],
+    },
+    network: { allowed: false },
+    requiresConfirmation: false,
+  },
+
+  general: {
+    files: {
+      read: { allow: ['**'] },
+      write: { allow: ['**'], deny: ['.git/**', '.env*', '.env/**'] },
+      delete: { allow: ['tmp/**', 'dist/**', 'build/**'], deny: ['.git/**', '.env*', '.env/**'] },
+    },
+    commands: {
+      allow: ['npm test', 'npm run build', 'bun test', 'git status', 'git add', 'git commit'],
+      deny: ['sudo *', 'rm -rf /**'],
+    },
+    network: { allowed: true },
+    requiresConfirmation: true,
+  },
+};
+
+/**
+ * Check if a path matches any pattern in the list
+ */
+export function matchPath(filePath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  
+  return patterns.some((pattern) => {
+    try {
+      const matcher = new Minimatch(pattern, { matchBase: true });
+      return matcher.match(filePath);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Check if a command matches any pattern
+ */
+export function matchCommand(command: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  
+  const normalizedCommand = command.trim().toLowerCase();
+  
+  return patterns.some((pattern) => {
+    const normalizedPattern = pattern.trim().toLowerCase();
+    
+    if (normalizedPattern === normalizedCommand) return true;
+    if (normalizedPattern === '*') return true;
+    if (normalizedPattern.endsWith(' *')) {
+      const prefix = normalizedPattern.slice(0, -2);
+      return normalizedCommand.startsWith(prefix);
+    }
+    
+    try {
+      const matcher = new Minimatch(normalizedPattern);
+      return matcher.match(normalizedCommand);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Validates file access
+ */
+export function validateFileAccess(
+  filePath: string,
+  action: 'read' | 'write' | 'delete',
+  ruleset: PermissionRuleset
+): AccessCheckResult {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const actionRules = ruleset.files[action];
+
+  if (actionRules.deny && matchPath(normalizedPath, actionRules.deny)) {
+    return {
+      allowed: false,
+      reason: `${action} access denied for ${filePath} (matches deny pattern)`,
+    };
+  }
+
+  if (!matchPath(normalizedPath, actionRules.allow)) {
+    return {
+      allowed: false,
+      reason: `${action} access not allowed for ${filePath}`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Validates command execution
+ */
+export function validateCommandExecution(
+  command: string,
+  ruleset: PermissionRuleset
+): AccessCheckResult {
+  // Check if command is in allow list first
+  const isAllowed = matchCommand(command, ruleset.commands.allow);
+  
+  if (!isAllowed) {
+    return {
+      allowed: false,
+      reason: `command not allowed: "${command}"`,
+    };
+  }
+  
+  // Then check if it's explicitly denied (deny overrides allow)
+  if (ruleset.commands.deny && matchCommand(command, ruleset.commands.deny)) {
+    return {
+      allowed: false,
+      reason: `command execution denied: "${command}"`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Validates network access
+ */
+export function validateNetworkAccess(
+  url: string,
+  ruleset: PermissionRuleset
+): AccessCheckResult {
+  if (!ruleset.network.allowed) {
+    return {
+      allowed: false,
+      reason: 'network access disabled for this agent',
+    };
+  }
+
+  if (ruleset.network.allowedDomains) {
+    try {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+      
+      const allowed = ruleset.network.allowedDomains.some((domain) =>
+        hostname === domain || hostname.endsWith('.' + domain)
+      );
+
+      if (!allowed) {
+        return {
+          allowed: false,
+          reason: `network access to ${hostname} not allowed`,
+        };
+      }
+    } catch {
+      return {
+        allowed: false,
+        reason: `invalid URL: ${url}`,
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Permission Manager for agent-based rulesets
+ */
+export class AgentPermissionManager {
+  private userRulesets: Map<AgentRole, PermissionRuleset> = new Map();
+
+  setPermissions(role: AgentRole, ruleset: PermissionRuleset): void {
+    this.userRulesets.set(role, ruleset);
+  }
+
+  getPermissions(role: AgentRole): PermissionRuleset {
+    return this.userRulesets.get(role) || DEFAULT_PERMISSIONS[role];
+  }
+
+  canReadFile(filePath: string, role: AgentRole): AccessCheckResult {
+    const ruleset = this.getPermissions(role);
+    return validateFileAccess(filePath, 'read', ruleset);
+  }
+
+  canWriteFile(filePath: string, role: AgentRole): AccessCheckResult {
+    const ruleset = this.getPermissions(role);
+    return validateFileAccess(filePath, 'write', ruleset);
+  }
+
+  canDeleteFile(filePath: string, role: AgentRole): AccessCheckResult {
+    const ruleset = this.getPermissions(role);
+    return validateFileAccess(filePath, 'delete', ruleset);
+  }
+
+  canExecuteCommand(command: string, role: AgentRole): AccessCheckResult {
+    const ruleset = this.getPermissions(role);
+    return validateCommandExecution(command, ruleset);
+  }
+
+  canAccessNetwork(url: string, role: AgentRole): AccessCheckResult {
+    const ruleset = this.getPermissions(role);
+    return validateNetworkAccess(url, ruleset);
+  }
+}
+
+export const agentPermissionManager = new AgentPermissionManager();
+

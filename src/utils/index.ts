@@ -7,6 +7,9 @@ import { createHash } from 'crypto';
 import pino from 'pino';
 import { configManager } from '../config/index.js';
 
+// Export Phase 1 utilities
+export * from './prompt-loader.js';
+
 // ===========================================
 // Logger
 // ===========================================

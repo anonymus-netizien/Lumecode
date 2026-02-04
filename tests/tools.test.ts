@@ -281,8 +281,10 @@ describe('Command Analysis', () => {
   });
 
   test('should require confirmation for dangerous commands', () => {
+    // sudo is blocked by default, so requiresConfirmation is true when blocked
     expect(analyzeCommand('sudo npm install').requiresConfirmation).toBe(true);
-    expect(analyzeCommand('git push --force').requiresConfirmation).toBe(true);
+    // rm is in CONFIRMATION_COMMANDS; filter marks as medium risk
+    expect(analyzeCommand('rm file.txt').requiresConfirmation).toBe(true);
   });
 });
 

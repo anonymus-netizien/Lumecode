@@ -20,6 +20,16 @@ config();
 
 const VERSION = '0.1.0';
 
+/** Env var required for each cloud provider (null = no key, e.g. ollama) */
+const PROVIDER_ENV_VARS: Record<ProviderName, string | null> = {
+  gemini: 'GOOGLE_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  groq: 'GROQ_API_KEY',
+  ollama: null,
+};
+
+const CLOUD_PROVIDER_NAMES: ProviderName[] = ['gemini', 'openrouter', 'groq', 'ollama'];
+
 // ===========================================
 // CLI Program
 // ===========================================
@@ -191,12 +201,17 @@ program
       console.log(`  Log Level: ${config.logLevel}`);
       console.log('');
 
-      const providers = configManager.getAvailableProviders();
-      console.log(chalk.bold('Available Providers:'));
-      for (const name of providers) {
+      console.log(chalk.bold('Providers:'));
+      for (const name of CLOUD_PROVIDER_NAMES) {
         const provider = configManager.getProvider(name);
-        const hasKey = provider?.apiKey ? '✓' : '✗';
-        console.log(`  ${hasKey === '✓' ? chalk.green(hasKey) : chalk.red(hasKey)} ${name}: ${provider?.model || 'not configured'}`);
+        const envVar = PROVIDER_ENV_VARS[name];
+        if (provider && (provider.apiKey || name === 'ollama')) {
+          const hasKey = provider.apiKey || name === 'ollama' ? '✓' : '✗';
+          console.log(`  ${hasKey === '✓' ? chalk.green(hasKey) : chalk.red(hasKey)} ${name}: ${provider.model || 'not configured'}`);
+        } else {
+          const hint = envVar ? ` (set ${envVar} in .env)` : '';
+          console.log(`  ${chalk.red('✗')} ${name}: not configured${hint}`);
+        }
       }
       console.log('');
     }
@@ -216,19 +231,33 @@ program
     console.log(chalk.bold('\nLLM Providers:\n'));
 
     if (options.check) {
-      const availability = await providerRegistry.checkAvailability();
-      
-      for (const [name, available] of availability) {
-        const status = available ? chalk.green('✓ Available') : chalk.red('✗ Unavailable');
+      for (const name of CLOUD_PROVIDER_NAMES) {
         const provider = providerRegistry.get(name);
-        console.log(`  ${name}: ${status} (${provider?.getModel() || 'no model'})`);
+        const envVar = PROVIDER_ENV_VARS[name];
+        if (!provider) {
+          const hint = envVar ? ` (set ${envVar} in .env)` : '';
+          console.log(`  ${name}: ${chalk.red('not configured')}${hint}`);
+        } else {
+          const status = await providerRegistry.checkProviderStatus(name);
+          if (status.available) {
+            console.log(`  ${name}: ${chalk.green('✓ Available')} (${provider.getModel()})`);
+          } else {
+            console.log(`  ${name}: ${chalk.red('✗ Unavailable')}${status.error ? ` - ${status.error}` : ''}`);
+          }
+        }
       }
     } else {
-      const providers = providerRegistry.getProviderInfo();
-      
-      for (const { name, model, isActive } of providers) {
-        const active = isActive ? chalk.cyan(' (active)') : '';
-        console.log(`  ${name}: ${model}${active}`);
+      for (const name of CLOUD_PROVIDER_NAMES) {
+        const provider = providerRegistry.get(name);
+        const envVar = PROVIDER_ENV_VARS[name];
+        if (!provider) {
+          const hint = envVar ? ` (set ${envVar} in .env)` : '';
+          console.log(`  ${name}: ${chalk.red('not configured')}${hint}`);
+        } else {
+          const info = providerRegistry.getProviderInfo().find((p) => p.name === name);
+          const active = info?.isActive ? chalk.cyan(' (active)') : '';
+          console.log(`  ${name}: ${provider.getModel()}${active}`);
+        }
       }
     }
     console.log('');
@@ -394,17 +423,36 @@ async function interactiveLoop(stream: boolean): Promise<void> {
 
         case 'provider':
           if (args[0]) {
-            const success = await engine.switchProvider(args[0] as ProviderName);
+            const providerName = args[0] as ProviderName;
+            const success = await engine.switchProvider(providerName);
             if (success) {
-              console.log(chalk.dim(`Switched to ${args[0]} provider.`));
+              const status = await engine.checkProviderStatus(providerName);
+              if (status.available) {
+                console.log(chalk.dim(`Switched to ${args[0]} provider.`));
+              } else {
+                console.log(chalk.dim(`Switched to ${args[0]} provider.`));
+                console.log(chalk.yellow(`Warning: ${status.error || 'Provider may not respond.'}`));
+              }
             } else {
-              console.log(chalk.red(`Provider ${args[0]} not available.`));
+              const status = await engine.checkProviderStatus(providerName);
+              const envVar = PROVIDER_ENV_VARS[providerName];
+              const hint = envVar && status.error?.includes('not configured')
+                ? ` Set ${envVar} in .env to enable.`
+                : '';
+              console.log(chalk.red(`${status.error || `Provider ${args[0]} not available.`}${hint}`));
             }
           } else {
-            const providers = engine.getProviders();
-            for (const p of providers) {
-              const active = p.isActive ? chalk.cyan(' *') : '';
-              console.log(`  ${p.name}: ${p.model}${active}`);
+            const providersList = engine.getProviders();
+            for (const name of CLOUD_PROVIDER_NAMES) {
+              const p = providersList.find((x) => x.name === name);
+              const envVar = PROVIDER_ENV_VARS[name];
+              if (p) {
+                const active = p.isActive ? chalk.cyan(' *') : '';
+                console.log(`  ${p.name}: ${p.model}${active}`);
+              } else {
+                const hint = envVar ? ` (set ${envVar} in .env)` : '';
+                console.log(`  ${chalk.red(name + ': not configured')}${hint}`);
+              }
             }
           }
           break;
