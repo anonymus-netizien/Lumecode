@@ -62,3 +62,62 @@ export function loadPromptsWithCache(subdir: string): Record<string, string> {
   promptCache.set(subdir, prompts);
   return prompts;
 }
+
+/**
+ * PromptLoader Class
+ * OOP interface for loading prompts with caching
+ */
+export class PromptLoader {
+  private cache: Map<string, string> = new Map();
+  private subdir: string;
+
+  constructor(subdir: string = 'agents/prompts') {
+    this.subdir = subdir;
+  }
+
+  /**
+   * Load a single prompt by role/name
+   */
+  async load(name: string): Promise<string> {
+    if (this.cache.has(name)) {
+      return this.cache.get(name)!;
+    }
+
+    try {
+      const content = loadPrompt(name, this.subdir);
+      this.cache.set(name, content);
+      return content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Load all prompts
+   */
+  async loadAll(): Promise<Record<string, string>> {
+    return loadAllPrompts(this.subdir);
+  }
+
+  /**
+   * Clear cache
+   */
+  reload(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Get cached prompt without loading
+   */
+  get(name: string): string | undefined {
+    return this.cache.get(name);
+  }
+
+  /**
+   * Check if prompt is cached
+   */
+  has(name: string): boolean {
+    return this.cache.has(name);
+  }
+}
+

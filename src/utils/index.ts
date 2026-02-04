@@ -10,6 +10,10 @@ import { configManager } from '../config/index.js';
 // Export Phase 1 utilities
 export * from './prompt-loader.js';
 
+// Export Phase 2 utilities
+export * from '../agents/config/agent-info.js';
+export * from '../agents/config/agent-generator.js';
+
 // ===========================================
 // Logger
 // ===========================================

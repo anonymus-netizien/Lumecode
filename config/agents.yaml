@@ -1,0 +1,205 @@
+version: '1.0.0'
+
+# Default configuration applied to all agents
+defaults:
+  configuration:
+    maxContextTokens: 8000
+    defaultTemperature: 0.7
+    maxRetries: 3
+    timeoutSeconds: 30
+
+# Individual agent configurations
+agents:
+  # Build Agent - Code generation and implementation
+  - id: build
+    role: build
+    name: Build Agent
+    description: Generates code and implements features
+    version: 1.0.0
+    
+    capabilities:
+      canReadFiles: true
+      canWriteFiles: true
+      canExecuteCommands: true
+      canAccessNetwork: false
+      canAccessGit: true
+      requiresUserConfirmation: false
+    
+    configuration:
+      maxContextTokens: 16000
+      defaultTemperature: 0.5
+      maxRetries: 3
+      timeoutSeconds: 60
+      defaultProvider: gemini
+      defaultModel: gemini-2.0-flash
+    
+    tools:
+      enabled:
+        - file-reader
+        - file-writer
+        - command-executor
+        - git-operations
+      disabled: []
+    
+    prompts:
+      system: |
+        You are a expert code generation agent. Your role is to:
+        - Write clean, well-structured code following best practices
+        - Implement features based on specifications
+        - Ensure code quality and maintainability
+        - Add comprehensive error handling
+        - Write tests for critical functionality
+      instructions: |
+        1. Read existing code to understand patterns
+        2. Follow the project structure and conventions
+        3. Use appropriate libraries and frameworks
+        4. Add meaningful comments for complex logic
+        5. Test your implementation thoroughly
+    
+    metadata:
+      defaultLanguages:
+        - typescript
+        - python
+      supportedFrameworks:
+        - react
+        - express
+        - fastapi
+
+  # Plan Agent - Strategic planning and design
+  - id: plan
+    role: plan
+    name: Plan Agent
+    description: Creates implementation plans and architecture designs
+    version: 1.0.0
+    
+    capabilities:
+      canReadFiles: true
+      canWriteFiles: false
+      canExecuteCommands: false
+      canAccessNetwork: true
+      canAccessGit: true
+      requiresUserConfirmation: true
+    
+    configuration:
+      maxContextTokens: 12000
+      defaultTemperature: 0.7
+      maxRetries: 2
+      timeoutSeconds: 45
+      defaultProvider: gemini
+      defaultModel: gemini-2.0-flash
+    
+    tools:
+      enabled:
+        - file-reader
+        - project-analyzer
+        - documentation-generator
+      disabled:
+        - file-writer
+        - command-executor
+    
+    prompts:
+      system: |
+        You are an expert technical architect and planner. Your role is to:
+        - Analyze requirements and create detailed implementation plans
+        - Design system architecture and component structure
+        - Identify potential issues and risks
+        - Suggest optimal technology choices
+        - Create actionable step-by-step plans
+      instructions: |
+        1. Understand the full scope of the task
+        2. Break down complex problems into manageable components
+        3. Consider performance, scalability, and maintainability
+        4. Document assumptions and constraints
+        5. Provide clear, prioritized action items
+
+  # Review Agent - Code quality and correctness
+  - id: review
+    role: review
+    name: Review Agent
+    description: Reviews code for quality, correctness, and best practices
+    version: 1.0.0
+    
+    capabilities:
+      canReadFiles: true
+      canWriteFiles: false
+      canExecuteCommands: false
+      canAccessNetwork: false
+      canAccessGit: false
+      requiresUserConfirmation: false
+    
+    configuration:
+      maxContextTokens: 8000
+      defaultTemperature: 0.3
+      maxRetries: 1
+      timeoutSeconds: 30
+      defaultProvider: gemini
+      defaultModel: gemini-2.0-flash
+    
+    tools:
+      enabled:
+        - file-reader
+        - code-analyzer
+        - lint-checker
+      disabled:
+        - file-writer
+        - command-executor
+    
+    prompts:
+      system: |
+        You are a thorough code reviewer. Your role is to:
+        - Identify bugs and potential issues
+        - Check code quality and style
+        - Suggest performance improvements
+        - Review security considerations
+        - Ensure best practices are followed
+      instructions: |
+        1. Review the code systematically
+        2. Check for common pitfalls and anti-patterns
+        3. Verify error handling is adequate
+        4. Assess performance implications
+        5. Suggest specific improvements with reasoning
+
+  # General Agent - Flexible assistant
+  - id: general
+    role: general
+    name: General Agent
+    description: General purpose assistant for various tasks
+    version: 1.0.0
+    
+    capabilities:
+      canReadFiles: true
+      canWriteFiles: true
+      canExecuteCommands: false
+      canAccessNetwork: true
+      canAccessGit: false
+      requiresUserConfirmation: true
+    
+    configuration:
+      maxContextTokens: 10000
+      defaultTemperature: 0.6
+      maxRetries: 2
+      timeoutSeconds: 40
+      defaultProvider: gemini
+      defaultModel: gemini-2.0-flash
+    
+    tools:
+      enabled:
+        - file-reader
+        - file-writer
+        - project-analyzer
+      disabled:
+        - command-executor
+    
+    prompts:
+      system: |
+        You are a helpful AI assistant for general tasks.
+        - Help with problem-solving and brainstorming
+        - Provide explanations and documentation
+        - Assist with refactoring and optimization
+        - Support learning and knowledge transfer
+      instructions: |
+        1. Be clear and concise in responses
+        2. Provide examples when helpful
+        3. Ask clarifying questions when needed
+        4. Explain reasoning behind suggestions
+        5. Be open to feedback and corrections
