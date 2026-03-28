@@ -126,35 +126,51 @@ class ConfigManager {
     }
   }
 
+  /**
+   * Re-initialize providers from environment variables
+   * Call this after dotenv loads to pick up .env values
+   */
+  reinitializeProviders(): void {
+    // Clear existing provider configs first
+    this.config.providers = {} as Record<ProviderName, ProviderConfig>;
+    this.initializeProviders();
+  }
+
   private initializeProviders(): void {
     const env = process.env;
 
-    // Gemini
-    if (env.GOOGLE_API_KEY) {
+    // Helper to trim whitespace from API keys
+    const trimKey = (key: string | undefined): string | undefined => key?.trim() || undefined;
+
+    // Gemini (support both GEMINI_API_KEY and GOOGLE_API_KEY)
+    const geminiKey = trimKey(env.GEMINI_API_KEY) || trimKey(env.GOOGLE_API_KEY);
+    if (geminiKey) {
       this.config.providers.gemini = {
         ...PROVIDER_DEFAULTS.gemini,
         name: 'gemini',
-        apiKey: env.GOOGLE_API_KEY,
+        apiKey: geminiKey,
         model: env.LUMECODE_GEMINI_MODEL || PROVIDER_DEFAULTS.gemini.model!,
       } as ProviderConfig;
     }
 
     // OpenRouter
-    if (env.OPENROUTER_API_KEY) {
+    const openrouterKey = trimKey(env.OPENROUTER_API_KEY);
+    if (openrouterKey) {
       this.config.providers.openrouter = {
         ...PROVIDER_DEFAULTS.openrouter,
         name: 'openrouter',
-        apiKey: env.OPENROUTER_API_KEY,
+        apiKey: openrouterKey,
         model: env.LUMECODE_OPENROUTER_MODEL || PROVIDER_DEFAULTS.openrouter.model!,
       } as ProviderConfig;
     }
 
     // Groq
-    if (env.GROQ_API_KEY) {
+    const groqKey = trimKey(env.GROQ_API_KEY);
+    if (groqKey) {
       this.config.providers.groq = {
         ...PROVIDER_DEFAULTS.groq,
         name: 'groq',
-        apiKey: env.GROQ_API_KEY,
+        apiKey: groqKey,
         model: env.LUMECODE_GROQ_MODEL || PROVIDER_DEFAULTS.groq.model!,
       } as ProviderConfig;
     }

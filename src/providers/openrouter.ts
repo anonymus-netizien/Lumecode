@@ -9,9 +9,11 @@ import { BaseProvider } from './base.js';
 import type {
   ProviderConfig,
   ProviderCapabilities,
+  FunctionDefinition,
   LLMMessage,
   LLMResponse,
   StreamChunk,
+  ToolCall,
 } from '../types/index.js';
 import { ProviderError } from '../types/index.js';
 
@@ -27,6 +29,7 @@ export const OPENROUTER_FREE_MODELS = [
 
 export class OpenRouterProvider extends BaseProvider {
   private client: OpenAI;
+  private tools: FunctionDefinition[] = [];
 
   constructor(config: ProviderConfig) {
     super(config);
@@ -62,16 +65,50 @@ export class OpenRouterProvider extends BaseProvider {
     };
   }
 
+  setTools(tools: FunctionDefinition[]): void {
+    this.tools = tools;
+  }
+
   async chat(messages: LLMMessage[]): Promise<LLMResponse> {
+    return this.chatCompletion(
+      this.formatMessages(messages) as OpenAI.Chat.ChatCompletionMessageParam[]
+    );
+  }
+
+  /**
+   * Raw OpenAI-format messages. Used by the engine tool loop.
+   */
+  async chatCompletion(
+    messages: OpenAI.Chat.ChatCompletionMessageParam[]
+  ): Promise<LLMResponse> {
     try {
-      const response = await this.client.chat.completions.create({
+      const request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
         model: this.config.model,
-        messages: this.formatMessages(messages) as OpenAI.Chat.ChatCompletionMessageParam[],
+        messages,
         max_tokens: this.config.maxTokens,
         temperature: this.config.temperature,
-      });
+      };
 
+      if (this.tools.length > 0) {
+        request.tools = this.tools.map((tool) => ({
+          type: 'function' as const,
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters as unknown as Record<string, unknown>,
+          },
+        }));
+      }
+
+      const response = await this.client.chat.completions.create(request);
       const choice = response.choices[0];
+
+      const toolCalls: ToolCall[] =
+        choice.message.tool_calls?.map((tc) => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: JSON.parse(tc.function.arguments || '{}'),
+        })) || [];
 
       return {
         content: choice.message.content || '',
@@ -85,6 +122,7 @@ export class OpenRouterProvider extends BaseProvider {
             }
           : undefined,
         finishReason: this.mapFinishReason(choice.finish_reason),
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         raw: response,
       };
     } catch (error) {

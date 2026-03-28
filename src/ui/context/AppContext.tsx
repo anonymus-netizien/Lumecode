@@ -12,7 +12,9 @@ import React, {
   useEffect,
   type ReactNode,
 } from 'react';
+import { config as loadDotenv } from 'dotenv';
 import { Text } from 'ink';
+import { configManager } from '../../config/index.js';
 import { engine } from '../../engine/index.js';
 import { sessionManager } from '../../session/index.js';
 import { useLiveSync, type FileEvent } from '../../hooks/useLiveSync.js';
@@ -123,6 +125,9 @@ export const AppProvider: React.FC<{
   useEffect(() => {
     (async () => {
       try {
+        loadDotenv({ override: true });
+        configManager.reinitializeProviders();
+
         // Initialize engine first
         await engine.initialize({
           workingDirectory: initialDirectory || process.cwd(),

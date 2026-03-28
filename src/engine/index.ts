@@ -22,6 +22,10 @@ import type {
   ToolCall,
   ToolResult,
 } from '../types/index.js';
+import {
+  runOpenAIToolLoop,
+  supportsOpenAIToolLoop,
+} from './openai-tool-loop.js';
 
 // ===========================================
 // Engine Class
@@ -143,11 +147,12 @@ class Engine {
   }
 
   /**
-   * Process a message with streaming
+   * Process a message with streaming and tool execution
    */
   async processStream(
     request: EngineRequest,
-    onChunk: (content: string) => void
+    onChunk: (content: string) => void,
+    signal?: AbortSignal
   ): Promise<EngineResponse> {
     if (!this.initialized) {
       await this.initialize();
@@ -155,6 +160,7 @@ class Engine {
 
     const agent = this.agent!;
     const session = this.currentSession!;
+    const provider = this.provider!;
 
     // Store user message
     const userMessage: LLMMessage = {
@@ -164,36 +170,132 @@ class Engine {
     };
     sessionManager.addMessage(session.id, userMessage);
 
-    // Get streaming response
-    const messages = agent.prepareMessagesForRequest(request.message);
-    const response = await this.provider!.chatStream(messages, (chunk) => {
-      if (!chunk.done && chunk.content) {
-        onChunk(chunk.content);
-      }
-    });
-
-    // Add to agent history
+    // Add user message to agent history
     agent.addMessageToHistory({
       role: 'user',
       content: request.message,
     });
-    agent.addMessageToHistory({
-      role: 'assistant',
-      content: response.content,
+
+    let totalContent = '';
+
+    try {
+      // Groq / OpenRouter: streaming requests do not send tool schemas, so the model may
+      // return tool_calls with no text (looks hung) and no tools run (no real file writes).
+      if (supportsOpenAIToolLoop(provider)) {
+        const { content, response } = await runOpenAIToolLoop(
+          provider,
+          agent,
+          (call) => this.executeAgentToolCall(call),
+          onChunk,
+          { signal }
+        );
+        totalContent = content;
+
+        agent.addMessageToHistory({
+          role: 'assistant',
+          content: totalContent || response.content,
+        });
+
+        const assistantMessage: LLMMessage = {
+          role: 'assistant',
+          content: totalContent || response.content,
+          timestamp: new Date(),
+        };
+        sessionManager.addMessage(session.id, assistantMessage);
+
+        return {
+          message: {
+            content: totalContent || response.content,
+            model: provider.getModel(),
+            provider: provider.name,
+            finishReason: response.finishReason || 'stop',
+            usage: response.usage,
+          },
+          sessionId: session.id,
+        };
+      }
+
+      const messages = [
+        { role: 'system' as const, content: agent.getSystemPrompt() },
+        ...agent.getHistory(),
+      ];
+
+      const response = await provider.chatStream(messages, (chunk) => {
+        if (signal?.aborted) {
+          return;
+        }
+        if (!chunk.done && chunk.content) {
+          onChunk(chunk.content);
+          totalContent += chunk.content;
+        }
+      });
+
+      agent.addMessageToHistory({
+        role: 'assistant',
+        content: totalContent || response.content,
+      });
+
+      const assistantMessage: LLMMessage = {
+        role: 'assistant',
+        content: totalContent || response.content,
+        timestamp: new Date(),
+      };
+      sessionManager.addMessage(session.id, assistantMessage);
+
+      return {
+        message: {
+          content: totalContent || response.content,
+          model: provider.getModel(),
+          provider: provider.name,
+          finishReason: response.finishReason || 'stop',
+          usage: response.usage,
+        },
+        sessionId: session.id,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      onChunk(`\n\n❌ Error: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Run a tool call through the active agent (capabilities, confirmations) and session bookkeeping.
+   */
+  async executeAgentToolCall(call: ToolCall): Promise<ToolResult> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const workingDir = this.currentSession?.workingDirectory || process.cwd();
+    toolRegistry.setContext({
+      workingDirectory: workingDir,
+      sessionId: this.currentSession?.id,
     });
 
-    // Store assistant response
-    const assistantMessage: LLMMessage = {
-      role: 'assistant',
-      content: response.content,
-      timestamp: new Date(),
-    };
-    sessionManager.addMessage(session.id, assistantMessage);
+    const result = await this.agent!.handleToolCall(call);
 
-    return {
-      message: response,
-      sessionId: session.id,
-    };
+    if (this.toolCallHandler) {
+      this.toolCallHandler(call.name, call.arguments, result);
+    }
+
+    if (this.currentSession && result.success) {
+      const metadata = this.currentSession.metadata || {};
+      if (call.name === 'file_write' || call.name === 'file_edit') {
+        metadata.filesModified = metadata.filesModified || [];
+        const p = call.arguments.path as string | undefined;
+        if (p && !metadata.filesModified.includes(p)) {
+          metadata.filesModified.push(p);
+        }
+      }
+      if (call.name === 'terminal_execute') {
+        metadata.commandsExecuted = metadata.commandsExecuted || [];
+        metadata.commandsExecuted.push(call.arguments.command as string);
+      }
+      sessionManager.update(this.currentSession.id, { metadata });
+    }
+
+    return result;
   }
 
   /**

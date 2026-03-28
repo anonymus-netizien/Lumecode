@@ -100,10 +100,14 @@ class ProviderRegistry {
 
   /**
    * Select the best available provider based on priority
-   * Priority: gemini > openrouter > groq > ollama
+   * Uses configured defaultProvider first, then fallback order
    */
   async selectBestProvider(): Promise<boolean> {
-    const priority: ProviderName[] = ['gemini', 'openrouter', 'groq', 'ollama'];
+    const defaultProvider = configManager.get().defaultProvider;
+    const priority: ProviderName[] = [
+      defaultProvider,
+      ...(['groq', 'openrouter', 'gemini', 'ollama'] as ProviderName[]).filter(p => p !== defaultProvider)
+    ];
 
     for (const name of priority) {
       const provider = this.providers.get(name);

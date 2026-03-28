@@ -195,6 +195,33 @@ export abstract class BaseAgent {
   }
 
   /**
+   * Get the system prompt (with context if available)
+   */
+  getSystemPrompt(): string {
+    let systemPrompt = this.config.systemPrompt;
+    
+    if (this.context) {
+      systemPrompt += '\n\n## Current Context\n';
+      systemPrompt += `Working Directory: ${this.context.workingDirectory}\n`;
+      
+      if (this.context.files.length > 0) {
+        systemPrompt += '\n### Loaded Files:\n';
+        for (const file of this.context.files) {
+          systemPrompt += `- ${file.path} (${file.language || 'unknown'})\n`;
+        }
+      }
+
+      if (this.context.gitInfo) {
+        systemPrompt += `\n### Git Info:\n`;
+        systemPrompt += `Branch: ${this.context.gitInfo.branch}\n`;
+        systemPrompt += `Dirty: ${this.context.gitInfo.isDirty}\n`;
+      }
+    }
+
+    return systemPrompt;
+  }
+
+  /**
    * Clear conversation history
    */
   clearHistory(): void {

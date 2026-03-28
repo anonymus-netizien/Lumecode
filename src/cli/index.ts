@@ -15,8 +15,12 @@ import { providerRegistry } from '../providers/index.js';
 import { startTUI } from '../ui/index.js';
 import type { AgentRole, ProviderName } from '../types/index.js';
 
-// Load environment variables
-config();
+// Load environment variables (override shell env vars with .env values)
+config({ override: true });
+
+// Re-initialize config manager to pick up .env values (needed because configManager
+// is instantiated at import time before dotenv runs)
+configManager.reinitializeProviders();
 
 const VERSION = '0.1.0';
 

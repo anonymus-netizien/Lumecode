@@ -10,6 +10,7 @@ import type {
   LLMMessage,
   LLMResponse,
   StreamChunk,
+  FunctionDefinition,
 } from '../types/index.js';
 import { ProviderError } from '../types/index.js';
 
@@ -108,6 +109,14 @@ export abstract class BaseProvider {
    */
   getConfig(): ProviderConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Set available tools for function calling
+   * Override in providers that support function calling
+   */
+  setTools(_tools: FunctionDefinition[]): void {
+    // Default implementation does nothing - override in subclasses
   }
 
   /**

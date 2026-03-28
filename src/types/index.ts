@@ -37,6 +37,7 @@ export interface LLMResponse {
     totalTokens: number;
   };
   finishReason?: 'stop' | 'length' | 'tool_calls' | 'error';
+  toolCalls?: ToolCall[];
   raw?: unknown;
 }
 
@@ -274,6 +275,21 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+}
+
+export interface FunctionDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, {
+      type: string;
+      description?: string;
+      enum?: string[];
+      default?: unknown;
+    }>;
+    required?: string[];
+  };
 }
 
 // ===========================================
