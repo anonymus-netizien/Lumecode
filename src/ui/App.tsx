@@ -16,6 +16,7 @@ import {
   AgentSelector,
   ProviderSelector,
   ModelSelector,
+  SessionSelector,
   ErrorDisplay,
   WelcomeScreen,
   ThinkingIndicator,
@@ -23,7 +24,7 @@ import {
   type TokenUsage,
 } from './components.js';
 import { engine } from '../engine/index.js';
-import type { AgentRole, ProviderName, ChatMessage } from '../types/index.js';
+import type { AgentRole, ProviderName, ChatMessage, SessionSummary } from '../types/index.js';
 
 // ===========================================
 // App State Interface
@@ -42,6 +43,7 @@ interface AppState {
   showAgentSelector: boolean;
   showProviderSelector: boolean;
   showModelSelector: boolean;
+  showSessionSelector: boolean;
   showCostDetails: boolean;
   
   // Config
@@ -51,6 +53,8 @@ interface AppState {
   availableModels: string[];
   workingDirectory: string;
   sessionName: string;
+  sessionId: string;
+  sessions: SessionSummary[];
   
   // Metrics
   tokenUsage: TokenUsage;
@@ -77,6 +81,7 @@ const initialState: AppState = {
   showAgentSelector: false,
   showProviderSelector: false,
   showModelSelector: false,
+  showSessionSelector: false,
   showCostDetails: false,
   
   agent: 'build',
@@ -85,6 +90,8 @@ const initialState: AppState = {
   availableModels: [],
   workingDirectory: process.cwd(),
   sessionName: 'New Session',
+  sessionId: '',
+  sessions: [],
   
   tokenUsage: { used: 0, max: 128000, cost: 0 },
   responseTime: undefined,
@@ -153,6 +160,8 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
           model: engineState.model || 'llama-3.3-70b-versatile',
           availableModels: currentProvider?.models || [],
           sessionName: engineState.session?.name || 'New Session',
+          sessionId: engineState.session?.id || '',
+          sessions: engine.getSessionHistory(20),
           isInitialized: true,
           providerStatus,
         }));
@@ -205,8 +214,18 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
     }
 
     // Ctrl+O: Model selector
-    if (key.ctrl && input === 'o' && !state.showHelp && !state.showAgentSelector && !state.showProviderSelector) {
+    if (key.ctrl && input === 'o' && !state.showHelp && !state.showAgentSelector && !state.showProviderSelector && !state.showSessionSelector) {
       setState((s) => ({ ...s, showModelSelector: !s.showModelSelector }));
+      return;
+    }
+
+    // Ctrl+R: Session history selector
+    if (key.ctrl && input === 'r' && !state.showHelp && !state.showAgentSelector && !state.showProviderSelector && !state.showModelSelector) {
+      setState((s) => ({
+        ...s,
+        sessions: engine.getSessionHistory(30),
+        showSessionSelector: !s.showSessionSelector,
+      }));
       return;
     }
 
@@ -236,6 +255,7 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
         showAgentSelector: false,
         showProviderSelector: false,
         showModelSelector: false,
+        showSessionSelector: false,
       }));
     }
   });
@@ -384,6 +404,24 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
           `Model: ${state.model} | Tokens: ${state.tokenUsage.used}/${state.tokenUsage.max}`
         );
         break;
+
+      case 'history':
+      case 'sessions':
+        setState((s) => ({
+          ...s,
+          sessions: engine.getSessionHistory(30),
+          showSessionSelector: true,
+        }));
+        break;
+
+      case 'resume': {
+        if (!args[0]) {
+          addSystemMessage('Usage: /resume <session-id-or-prefix>');
+          break;
+        }
+        handleSessionSelect(args[0]);
+        break;
+      }
         
       case 'new':
         handleNewSession();
@@ -602,6 +640,8 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
         ...s,
         messages: [],
         sessionName: session.name,
+        sessionId: session.id,
+        sessions: engine.getSessionHistory(30),
         tokenUsage: { used: 0, max: s.tokenUsage.max, cost: 0 },
       }));
       addSystemMessage('Started new session');
@@ -620,6 +660,48 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
       messages: [],
     }));
   }, []);
+
+  const handleSessionSelect = useCallback(async (sessionIdOrPrefix: string) => {
+    try {
+      const resolvedId = engine.resolveSessionId(sessionIdOrPrefix);
+      if (!resolvedId) {
+        addSystemMessage(`Session not found (or ambiguous): ${sessionIdOrPrefix}`);
+        return;
+      }
+
+      const session = await engine.loadSession(resolvedId);
+      if (!session) {
+        addSystemMessage(`Failed to load session: ${sessionIdOrPrefix}`);
+        return;
+      }
+
+      const restoredMessages: ChatMessage[] = session.messages.map((m) => ({
+        id: randomUUID(),
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp || new Date(),
+      }));
+
+      setState((s) => ({
+        ...s,
+        messages: restoredMessages,
+        sessionName: session.name,
+        sessionId: session.id,
+        agent: session.agent,
+        provider: session.provider,
+        model: session.model,
+        sessions: engine.getSessionHistory(30),
+        showSessionSelector: false,
+      }));
+
+      addSystemMessage(`Restored session: ${session.name} (${session.id.slice(0, 8)})`);
+    } catch (error) {
+      setState((s) => ({
+        ...s,
+        error: error instanceof Error ? error.message : 'Failed to load session',
+      }));
+    }
+  }, [addSystemMessage]);
 
   const handleDismissError = useCallback(() => {
     setState((s) => ({ ...s, error: null }));
@@ -651,7 +733,7 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
   }
 
   // Check if any panel is open
-  const isPanelOpen = state.showHelp || state.showAgentSelector || state.showProviderSelector || state.showModelSelector;
+  const isPanelOpen = state.showHelp || state.showAgentSelector || state.showProviderSelector || state.showModelSelector || state.showSessionSelector;
 
   return (
     <Box flexDirection="column" padding={1} minHeight={20}>
@@ -696,6 +778,13 @@ const App: React.FC<{ initialDirectory?: string }> = ({ initialDirectory }) => {
           models={state.availableModels}
           provider={state.provider}
           onSelect={handleModelSelect}
+        />
+
+        <SessionSelector
+          visible={state.showSessionSelector}
+          sessions={state.sessions}
+          currentSessionId={state.sessionId}
+          onSelect={handleSessionSelect}
         />
 
         {/* Messages or Welcome */}

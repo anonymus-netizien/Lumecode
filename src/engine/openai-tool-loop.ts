@@ -9,6 +9,58 @@ import type { BaseAgent } from '../agents/base.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { FunctionDefinition, LLMResponse, ToolCall, ToolResult } from '../types/index.js';
 
+function isMalformedFunctionCallError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to call a function|failed_generation|malformed function|function call/i.test(message);
+}
+
+const TOOL_CALL_RETRY_HINT = [
+  'Tool-calling validation rules:',
+  '- Only call tools when needed.',
+  '- Every required parameter must be present and schema-valid.',
+  '- If a required value is unknown, ask a clarification question instead of guessing.',
+  '- For symbol lookups, call search_files first, then call file_read with the discovered path.',
+].join('\n');
+
+function normalizeMalformedToolCall(
+  call: ToolCall,
+  allowedToolNames: Set<string>
+): ToolCall | null {
+  if (allowedToolNames.has(call.name)) {
+    return call;
+  }
+
+  // Some models emit malformed names such as: file_read {"path":"..."}
+  const inlineArgsMatch = call.name.match(/^([a-zA-Z0-9_-]+)\s+(\{[\s\S]*\})$/);
+  if (!inlineArgsMatch) {
+    return null;
+  }
+
+  const recoveredName = inlineArgsMatch[1];
+  if (!allowedToolNames.has(recoveredName)) {
+    return null;
+  }
+
+  let recoveredArgs: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(inlineArgsMatch[2]);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      recoveredArgs = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+
+  return {
+    ...call,
+    name: recoveredName,
+    arguments: {
+      ...recoveredArgs,
+      ...(call.arguments ?? {}),
+    },
+  };
+}
+
 export interface ChatCompletionProvider {
   setTools(tools: FunctionDefinition[]): void;
   chatCompletion(
@@ -52,7 +104,9 @@ export async function runOpenAIToolLoop(
   options: { signal?: AbortSignal; maxIterations?: number } = {}
 ): Promise<{ content: string; response: LLMResponse }> {
   const { signal, maxIterations = 24 } = options;
-  provider.setTools(toFunctionDefinitions(agent));
+  const toolDefinitions = toFunctionDefinitions(agent);
+  const allowedToolNames = new Set(toolDefinitions.map((t) => t.name));
+  provider.setTools(toolDefinitions);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: agent.getSystemPrompt() },
@@ -67,13 +121,27 @@ export async function runOpenAIToolLoop(
 
   let lastResponse: LLMResponse | undefined;
   let iteration = 0;
+  let usedMalformedCallRecovery = false;
 
   while (iteration++ < maxIterations) {
     if (signal?.aborted) {
       throw new Error('Request aborted');
     }
 
-    lastResponse = await provider.chatCompletion(messages);
+    try {
+      lastResponse = await provider.chatCompletion(messages);
+    } catch (error) {
+      if (!usedMalformedCallRecovery && isMalformedFunctionCallError(error)) {
+        usedMalformedCallRecovery = true;
+        messages.push({
+          role: 'system',
+          content: TOOL_CALL_RETRY_HINT,
+        });
+        lastResponse = await provider.chatCompletion(messages);
+      } else {
+        throw error;
+      }
+    }
 
     if (!lastResponse.toolCalls?.length) {
       const text = lastResponse.content || '';
@@ -83,14 +151,30 @@ export async function runOpenAIToolLoop(
       return { content: text, response: lastResponse };
     }
 
+    const normalizedToolCalls = lastResponse.toolCalls
+      .map((call) => normalizeMalformedToolCall(call, allowedToolNames))
+      .filter((call): call is ToolCall => !!call);
+
+    if (normalizedToolCalls.length === 0) {
+      messages.push({
+        role: 'system',
+        content: `${TOOL_CALL_RETRY_HINT}\n- Use exactly one of these tool names: ${Array.from(allowedToolNames).join(', ')}.`,
+      });
+      continue;
+    }
+
+    if (normalizedToolCalls.length !== lastResponse.toolCalls.length) {
+      onChunk('\n⚠ Ignored malformed tool calls and retried with strict tool-name validation.\n');
+    }
+
     onChunk(
-      `\n⚙ Running ${lastResponse.toolCalls.length} tool call(s)…\n`
+      `\n⚙ Running ${normalizedToolCalls.length} tool call(s)…\n`
     );
 
     const assistantMsg: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
       role: 'assistant',
       content: lastResponse.content || null,
-      tool_calls: lastResponse.toolCalls.map((tc) => ({
+      tool_calls: normalizedToolCalls.map((tc) => ({
         id: tc.id,
         type: 'function' as const,
         function: {
@@ -101,7 +185,7 @@ export async function runOpenAIToolLoop(
     };
     messages.push(assistantMsg);
 
-    for (const tc of lastResponse.toolCalls) {
+    for (const tc of normalizedToolCalls) {
       if (signal?.aborted) {
         throw new Error('Request aborted');
       }

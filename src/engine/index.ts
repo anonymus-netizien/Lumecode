@@ -436,6 +436,36 @@ class Engine {
   }
 
   /**
+   * Get recent session summaries (most recent first)
+   */
+  getSessionHistory(limit = 20) {
+    sessionManager.initialize();
+    return sessionManager.list(limit);
+  }
+
+  /**
+   * Resolve a session id from full id or a unique prefix
+   */
+  resolveSessionId(sessionIdOrPrefix: string): string | null {
+    sessionManager.initialize();
+
+    const exact = sessionManager.get(sessionIdOrPrefix);
+    if (exact) {
+      return exact.id;
+    }
+
+    const matches = sessionManager
+      .list(200)
+      .filter((s) => s.id.startsWith(sessionIdOrPrefix));
+
+    if (matches.length !== 1) {
+      return null;
+    }
+
+    return matches[0].id;
+  }
+
+  /**
    * Get available models for a provider
    */
   async getModelsForProvider(name: ProviderName): Promise<string[]> {

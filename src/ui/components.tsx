@@ -9,7 +9,7 @@ import { Box, Text, useInput, useApp, Spacer } from 'ink';
 import Spinner from 'ink-spinner';
 import TextInput from 'ink-text-input';
 import { highlight } from 'cli-highlight';
-import type { AgentRole, ProviderName, ChatMessage } from '../types/index.js';
+import type { AgentRole, ProviderName, ChatMessage, SessionSummary } from '../types/index.js';
 
 // ===========================================
 // Design Tokens (Teal Theme - Inspired by OpenCode)
@@ -714,6 +714,7 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ visible, onClose }) => {
     { key: 'Tab', desc: 'Switch agent' },
     { key: 'Ctrl+P', desc: 'Switch provider' },
     { key: 'Ctrl+O', desc: 'Switch model' },
+    { key: 'Ctrl+R', desc: 'Session history' },
     { key: 'Ctrl+N', desc: 'New session' },
     { key: 'Ctrl+L', desc: 'Clear conversation' },
     { key: 'Ctrl+T', desc: 'Toggle cost details' },
@@ -725,6 +726,8 @@ export const HelpPanel: React.FC<HelpPanelProps> = ({ visible, onClose }) => {
     { cmd: '/help', desc: 'Show help' },
     { cmd: '/quit', desc: 'Exit chat' },
     { cmd: '/clear', desc: 'Clear history' },
+    { cmd: '/history', desc: 'Open session history' },
+    { cmd: '/resume <id>', desc: 'Resume a session' },
     { cmd: '/agent <type>', desc: 'Switch agent' },
     { cmd: '/provider <name>', desc: 'Switch provider' },
     { cmd: '/model [name]', desc: 'Switch model' },
@@ -1036,6 +1039,90 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       <Box marginTop={1}>
         <Text color={theme.muted} dimColor>
           Esc to close • Enter to select model
+        </Text>
+      </Box>
+    </Box>
+  );
+};
+
+// ===========================================
+// Session Selector Component
+// ===========================================
+
+interface SessionSelectorProps {
+  sessions: SessionSummary[];
+  currentSessionId?: string;
+  onSelect: (sessionId: string) => void;
+  visible: boolean;
+}
+
+export const SessionSelector: React.FC<SessionSelectorProps> = ({
+  sessions,
+  currentSessionId,
+  onSelect,
+  visible,
+}) => {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    if (!visible) return;
+    const currentIndex = sessions.findIndex((s) => s.id === currentSessionId);
+    setSelectedIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [sessions, currentSessionId, visible]);
+
+  useInput((input, key) => {
+    if (!visible) return;
+
+    if (key.upArrow || input === 'k') {
+      setSelectedIndex((i) => (i > 0 ? i - 1 : Math.max(0, sessions.length - 1)));
+    } else if (key.downArrow || input === 'j') {
+      setSelectedIndex((i) => (i < sessions.length - 1 ? i + 1 : 0));
+    } else if (key.return && sessions.length > 0) {
+      onSelect(sessions[selectedIndex].id);
+    }
+  });
+
+  if (!visible) return null;
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.primaryBright}
+      paddingX={2}
+      paddingY={1}
+      marginY={1}
+    >
+      <Text color={theme.primaryBright} bold>
+        Session History (Ctrl+R, ↑↓/j/k, Enter)
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        {sessions.length === 0 ? (
+          <Text color={theme.muted}>No previous sessions found</Text>
+        ) : (
+          sessions.map((session, i) => {
+            const isSelected = i === selectedIndex;
+            const isCurrent = session.id === currentSessionId;
+
+            return (
+              <Box key={session.id}>
+                <Text
+                  color={isSelected ? theme.primaryBright : theme.text}
+                  backgroundColor={isSelected ? theme.bgSelected : undefined}
+                >
+                  {isSelected ? '▸ ' : '  '}
+                  {session.id.slice(0, 8)}  {session.name.slice(0, 24).padEnd(24)}
+                  <Text color={theme.muted}> {session.agent} • {session.messageCount} msgs</Text>
+                  {isCurrent && <Text color={theme.success}> • current</Text>}
+                </Text>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={theme.muted} dimColor>
+          Tip: use /resume &lt;id-prefix&gt; to switch quickly
         </Text>
       </Box>
     </Box>

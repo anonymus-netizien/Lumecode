@@ -13,6 +13,7 @@ export {
   HelpPanel,
   AgentSelector,
   ProviderSelector,
+  SessionSelector,
   ErrorDisplay,
   ThinkingIndicator,
   WelcomeScreen,
